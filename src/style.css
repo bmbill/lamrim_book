@@ -328,7 +328,8 @@ select {
   min-height: 0;
   position: relative;
   overflow: auto;
-  touch-action: pan-x pan-y pinch-zoom;
+  /* 勿加 pinch-zoom：會變成瀏覽器整頁 visual viewport 縮放，與 PDF 重繪無關且易糊。雙指縮放由 main.ts 接縮放滑桿重繪 */
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -443,6 +444,8 @@ button.zone:focus-visible {
 
 .goto-panel input[type='number'] {
   width: 4rem;
+  /* iOS Safari：小於 16px 的欄位聚焦時會整頁放大，干擾 PDF 閱讀 */
+  font-size: 16px;
 }
 
 .status-line {

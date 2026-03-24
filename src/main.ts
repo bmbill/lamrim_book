@@ -548,22 +548,81 @@ function renderViewer(
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
   let touchStartX: number | null = null;
+  let pinchActive = false;
+  let pinchStartDist = 0;
+  let pinchStartZoomMul = 1;
+
+  function touchDistance(touches: TouchList): number {
+    if (touches.length < 2) return 0;
+    const a = touches[0];
+    const b = touches[1];
+    return Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+  }
+
+  function scheduleZoomRender(): void {
+    if (zoomSliderRaf !== 0) return;
+    zoomSliderRaf = requestAnimationFrame(() => {
+      zoomSliderRaf = 0;
+      void updateScaleAndRender();
+    });
+  }
 
   function onTouchStart(e: TouchEvent): void {
-    if (e.touches.length === 1) touchStartX = e.touches[0].clientX;
+    if (e.touches.length === 2) {
+      pinchActive = true;
+      touchStartX = null;
+      pinchStartDist = Math.max(touchDistance(e.touches), 8);
+      pinchStartZoomMul = zoomMul;
+      return;
+    }
+    if (e.touches.length === 1 && !pinchActive) {
+      touchStartX = e.touches[0].clientX;
+    }
+  }
+
+  function onTouchMove(e: TouchEvent): void {
+    if (e.touches.length !== 2) return;
+    if (!pinchActive) {
+      pinchActive = true;
+      touchStartX = null;
+      pinchStartDist = Math.max(touchDistance(e.touches), 8);
+      pinchStartZoomMul = zoomMul;
+    }
+    e.preventDefault();
+    const dist = touchDistance(e.touches);
+    if (dist < 4) return;
+    const ratio = dist / pinchStartDist;
+    const nextMul = pinchStartZoomMul * ratio;
+    const pct = Math.round(Math.max(50, Math.min(300, nextMul * 100)));
+    zoomSlider.value = String(pct);
+    applyZoomFromSlider();
+    scheduleZoomRender();
   }
 
   function onTouchEnd(e: TouchEvent): void {
-    if (touchStartX === null || e.changedTouches.length === 0) return;
-    const dx = e.changedTouches[0].clientX - touchStartX;
-    touchStartX = null;
-    if (Math.abs(dx) < 48) return;
-    if (dx > 0) step(-1);
-    else step(1);
+    if (e.touches.length < 2) pinchActive = false;
+    if (e.touches.length === 0 && touchStartX !== null && e.changedTouches.length === 1) {
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      touchStartX = null;
+      if (Math.abs(dx) < 48) return;
+      if (dx > 0) step(-1);
+      else step(1);
+      return;
+    }
+    if (e.touches.length === 0) touchStartX = null;
   }
 
+  /** iOS：攔截預設 pinch 手勢，改由我們重繪 PDF */
+  const onGesturePrevent = (ev: Event) => {
+    ev.preventDefault();
+  };
+
   stageWrap.addEventListener('touchstart', onTouchStart, { passive: true });
+  stageWrap.addEventListener('touchmove', onTouchMove, { passive: false });
   stageWrap.addEventListener('touchend', onTouchEnd, { passive: true });
+  stageWrap.addEventListener('gesturestart', onGesturePrevent, { passive: false });
+  stageWrap.addEventListener('gesturechange', onGesturePrevent, { passive: false });
+  stageWrap.addEventListener('gestureend', onGesturePrevent, { passive: false });
 
   function onKey(e: KeyboardEvent): void {
     if (e.key === 'ArrowLeft') {
@@ -597,11 +656,7 @@ function renderViewer(
 
   function onZoomSliderInput(): void {
     applyZoomFromSlider();
-    if (zoomSliderRaf !== 0) return;
-    zoomSliderRaf = requestAnimationFrame(() => {
-      zoomSliderRaf = 0;
-      void updateScaleAndRender();
-    });
+    scheduleZoomRender();
   }
 
   zoomSlider.addEventListener('input', onZoomSliderInput);
@@ -658,7 +713,11 @@ function renderViewer(
     ro.disconnect();
     window.removeEventListener('keydown', onKey);
     stageWrap.removeEventListener('touchstart', onTouchStart);
+    stageWrap.removeEventListener('touchmove', onTouchMove);
     stageWrap.removeEventListener('touchend', onTouchEnd);
+    stageWrap.removeEventListener('gesturestart', onGesturePrevent);
+    stageWrap.removeEventListener('gesturechange', onGesturePrevent);
+    stageWrap.removeEventListener('gestureend', onGesturePrevent);
     destroyDocument();
   };
 
