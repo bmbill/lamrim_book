@@ -351,11 +351,35 @@ select {
   justify-content: flex-end;
 }
 
+/* 勿用 width/height: auto !important，會覆寫 JS 設定的 CSS 尺寸，高 DPR 下等於把點陣寬高當版面寬高而異常放大 */
 .viewer-stage canvas {
-  width: auto !important;
-  height: auto !important;
   flex-shrink: 0;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+.viewer--immersive .viewer-toolbar {
+  display: none;
+}
+
+.viewer-exit-immersive {
+  position: absolute;
+  z-index: 6;
+  top: calc(8px + env(safe-area-inset-top, 0px));
+  right: calc(8px + env(safe-area-inset-right, 0px));
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 1.15rem;
+  line-height: 1;
+  background: rgba(30, 41, 59, 0.92);
+  color: var(--text);
+  border: 1px solid #334155;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}
+
+.viewer-exit-immersive:active {
+  transform: scale(0.96);
 }
 
 /* 雙頁並排時兩頁緊貼，避免中縫露底色成「線」 */

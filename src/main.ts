@@ -54,17 +54,23 @@ async function requestFullscreenCompat(el: HTMLElement): Promise<void> {
 function visibleFitSize(el: HTMLElement): { w: number; h: number } {
   const r = el.getBoundingClientRect();
   const vv = window.visualViewport;
-  if (!vv) {
-    return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
-  }
-  const left = Math.max(r.left, vv.offsetLeft);
-  const top = Math.max(r.top, vv.offsetTop);
-  const right = Math.min(r.right, vv.offsetLeft + vv.width);
-  const bottom = Math.min(r.bottom, vv.offsetTop + vv.height);
-  const w = right - left;
-  const h = bottom - top;
-  if (w >= 32 && h >= 32) return { w, h };
-  return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+  const rw = Math.max(1, r.width);
+  const rh = Math.max(1, r.height);
+  if (!vv) return { w: rw, h: rh };
+
+  const interL = Math.max(r.left, vv.offsetLeft);
+  const interT = Math.max(r.top, vv.offsetTop);
+  const interR = Math.min(r.right, vv.offsetLeft + vv.width);
+  const interB = Math.min(r.bottom, vv.offsetTop + vv.height);
+  const interW = interR - interL;
+  const interH = interB - interT;
+
+  const capW = Math.min(rw, vv.width);
+  const capH = Math.min(rh, vv.height, Math.max(0, vv.offsetTop + vv.height - r.top));
+
+  const w = Math.max(32, Math.min(interW >= 32 ? interW : capW, capW));
+  const h = Math.max(32, Math.min(interH >= 32 ? interH : capH, capH));
+  return { w, h };
 }
 
 const LS_HOME_DISPLAY = 'lamrim-home-display';
@@ -350,6 +356,9 @@ function renderViewer(
   app.innerHTML = `
     <div class="viewer">
       <div class="viewer-stage-wrap" id="stage-wrap">
+        <button type="button" class="viewer-exit-immersive" id="btn-exit-immersive" hidden aria-label="離開全螢幕（顯示工具列）">
+          ✕
+        </button>
         <div class="loading" id="loading">載入中…</div>
         <div class="viewer-stage" id="stage"></div>
         <button type="button" class="zone zone-left" id="zone-prev" aria-label="上一頁"></button>
@@ -405,6 +414,7 @@ function renderViewer(
   const zoomPct = app.querySelector<HTMLSpanElement>('#zoom-pct')!;
   const viewerRoot = app.querySelector<HTMLDivElement>('.viewer')!;
   const btnFullscreen = app.querySelector<HTMLButtonElement>('#btn-fullscreen')!;
+  const btnExitImmersive = app.querySelector<HTMLButtonElement>('#btn-exit-immersive')!;
 
   let doc: PDFDocumentProxy | null = null;
   let currentPage = 1;
@@ -415,6 +425,8 @@ function renderViewer(
   let cancelled = false;
   /** 避免縮放／resize 連續觸發時，舊一輪在 await 後仍改寫狀態列 */
   let layoutVersion = 0;
+  /** iOS 等不支援元素全螢幕 API 時，改為隱藏工具列的沉浸閱讀 */
+  let immersive = false;
 
   const canvases: HTMLCanvasElement[] = [document.createElement('canvas'), document.createElement('canvas')];
 
@@ -504,22 +516,31 @@ function renderViewer(
     visualViewport.addEventListener('scroll', onVisualViewportChange);
   }
 
-  /** iOS Safari 等環境常不支援元素全螢幕，隱藏按鈕以免誤導 */
   const canFullscreen =
     typeof viewerRoot.requestFullscreen === 'function' ||
     typeof (viewerRoot as HTMLElement & { webkitRequestFullscreen?: unknown }).webkitRequestFullscreen ===
       'function';
-  if (!canFullscreen) btnFullscreen.hidden = true;
 
-  function syncFullscreenButton(): void {
-    const on = getFullscreenElement() === viewerRoot;
-    btnFullscreen.setAttribute('aria-pressed', on ? 'true' : 'false');
-    btnFullscreen.setAttribute('aria-label', on ? '離開全螢幕' : '全螢幕');
-    btnFullscreen.textContent = on ? '離開全螢幕' : '全螢幕';
+  function syncChrome(): void {
+    const fsOn = getFullscreenElement() === viewerRoot;
+    const hideToolbar = immersive && !fsOn;
+    viewerRoot.classList.toggle('viewer--immersive', hideToolbar);
+    btnExitImmersive.hidden = !hideToolbar;
+    const chromeReduced = fsOn || immersive;
+    btnFullscreen.setAttribute('aria-pressed', chromeReduced ? 'true' : 'false');
+    btnFullscreen.textContent = chromeReduced ? '離開全螢幕' : '全螢幕';
+    btnFullscreen.setAttribute(
+      'aria-label',
+      chromeReduced
+        ? '離開全螢幕'
+        : canFullscreen
+          ? '全螢幕'
+          : '隱藏工具列（閱讀區加大，近似全螢幕）',
+    );
   }
 
   function onFullscreenChange(): void {
-    syncFullscreenButton();
+    syncChrome();
     void updateScaleAndRender();
   }
 
@@ -585,19 +606,38 @@ function renderViewer(
 
   zoomSlider.addEventListener('input', onZoomSliderInput);
   btnFullscreen.addEventListener('click', () => {
-    if (!canFullscreen) return;
     void (async () => {
-      try {
-        if (getFullscreenElement() === viewerRoot) {
-          await exitFullscreenCompat();
-        } else {
-          await requestFullscreenCompat(viewerRoot);
-        }
-      } catch {
-        /* 使用者拒絕或環境不支援 */
+      if (getFullscreenElement() === viewerRoot) {
+        await exitFullscreenCompat();
+        syncChrome();
+        void updateScaleAndRender();
+        return;
       }
+      if (immersive) {
+        immersive = false;
+        syncChrome();
+        void updateScaleAndRender();
+        return;
+      }
+      if (canFullscreen) {
+        try {
+          await requestFullscreenCompat(viewerRoot);
+        } catch {
+          immersive = true;
+        }
+      } else {
+        immersive = true;
+      }
+      syncChrome();
+      void updateScaleAndRender();
     })();
   });
+  btnExitImmersive.addEventListener('click', () => {
+    immersive = false;
+    syncChrome();
+    void updateScaleAndRender();
+  });
+  syncChrome();
   btnGoto.addEventListener('click', () => applyGoto());
   gotoInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') applyGoto();
@@ -605,6 +645,7 @@ function renderViewer(
 
   viewerCleanup = () => {
     cancelled = true;
+    immersive = false;
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
     if (getFullscreenElement() === viewerRoot) {
