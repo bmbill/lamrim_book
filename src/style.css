@@ -268,6 +268,9 @@ select {
 
 .open-row input[type='number'] {
   width: 4.5rem;
+  /* iOS：小於 16px 聚焦時常整頁放大；與閱讀頁 goto 一致 */
+  font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
 }
 
 .viewer {

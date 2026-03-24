@@ -62,11 +62,21 @@ function readingStageFitSize(el: HTMLElement): { w: number; h: number } {
 /** 與 index.html 一致；用於 iOS 聚焦輸入後短暫限制縮放以還原整頁比例 */
 const VIEWPORT_META_DEFAULT = 'width=device-width, initial-scale=1, viewport-fit=cover';
 
-/** iOS 輸入頁碼常仍會整頁放大；前往後 blur 並短暫改 viewport 再還原，盡量回到原顯示比例 */
+/**
+ * 手機聚焦數字框常觸發整頁放大；blur 並短暫限制 maximum-scale 再還原，盡量回到原比例。
+ * 閱讀頁「前往」與首頁「開啟」進入閱讀前都會呼叫。
+ */
 function resetViewportZoomAfterKeyboard(): void {
-  if (!/iP(hone|ad|od)/i.test(navigator.userAgent)) return;
+  const ae = document.activeElement;
+  if (ae instanceof HTMLElement) ae.blur();
+
   const meta = document.querySelector('meta[name="viewport"]');
   if (!meta) return;
+
+  const ua = navigator.userAgent;
+  const needsMetaReset = /iP(hone|ad|od)/i.test(ua) || /Android/i.test(ua);
+  if (!needsMetaReset) return;
+
   meta.setAttribute('content', `${VIEWPORT_META_DEFAULT}, maximum-scale=1`);
   window.setTimeout(() => {
     meta.setAttribute('content', VIEWPORT_META_DEFAULT);
@@ -138,6 +148,7 @@ function navigateHome(): void {
 }
 
 function navigateRead(id: string, opts?: { body?: number; pdf?: number }): void {
+  resetViewportZoomAfterKeyboard();
   const q: string[] = [];
   if (opts?.body != null && Number.isFinite(opts.body)) q.push(`body=${Math.floor(opts.body)}`);
   if (opts?.pdf != null && Number.isFinite(opts.pdf)) q.push(`pdf=${Math.floor(opts.pdf)}`);
