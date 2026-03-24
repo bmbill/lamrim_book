@@ -97,11 +97,15 @@ export async function renderPages(
   }
 }
 
+/** contain：整頁塞進視窗；fitWidth：以寬度撐滿（高可捲動，適合手機） */
+export type FitMode = 'contain' | 'fitWidth';
+
 export function fitScale(
   doc: PDFDocumentProxy,
   pageNums: number[],
   containerW: number,
   containerH: number,
+  mode: FitMode = 'contain',
 ): Promise<number> {
   return (async () => {
     let maxW = 0;
@@ -118,6 +122,9 @@ export function fitScale(
     const pad = 16;
     const sx = (containerW - pad - gap) / maxW;
     const sy = (containerH - pad) / maxH;
+    if (mode === 'fitWidth') {
+      return Math.max(0.25, Math.min(sx, 2.5));
+    }
     return Math.max(0.25, Math.min(sx, sy, 2.5));
   })();
 }

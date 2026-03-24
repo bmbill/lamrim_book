@@ -24,6 +24,29 @@ const byId = new Map(BOOKS.map((b) => [b.id, b]));
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
+function getFullscreenElement(): Element | null {
+  const doc = document as Document & { webkitFullscreenElement?: Element | null };
+  return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+}
+
+async function exitFullscreenCompat(): Promise<void> {
+  const doc = document as Document & { webkitExitFullscreen?: () => void | Promise<void> };
+  if (typeof document.exitFullscreen === 'function') {
+    await Promise.resolve(document.exitFullscreen());
+  } else {
+    await Promise.resolve(doc.webkitExitFullscreen?.());
+  }
+}
+
+async function requestFullscreenCompat(el: HTMLElement): Promise<void> {
+  const node = el as HTMLElement & { webkitRequestFullscreen?: () => void | Promise<void> };
+  if (typeof el.requestFullscreen === 'function') {
+    await Promise.resolve(el.requestFullscreen());
+  } else {
+    await Promise.resolve(node.webkitRequestFullscreen?.call(el));
+  }
+}
+
 const LS_HOME_DISPLAY = 'lamrim-home-display';
 type HomeDisplayMode = 'list' | 'cards';
 type HomeCardFocus = 'none' | 'lamrim' | 'lay';
@@ -316,16 +339,19 @@ function renderViewer(
         <button type="button" id="btn-back">返回</button>
         <span class="grow" id="title">${book.title}</span>
         <label><input type="checkbox" id="chk-spread" /> 雙頁</label>
+        <button type="button" id="btn-fullscreen" aria-pressed="false" aria-label="全螢幕">
+          全螢幕
+        </button>
         <label class="zoom-label">縮放
           <input
             type="range"
             id="zoom-slider"
-            min="100"
+            min="50"
             max="300"
             step="1"
             value="100"
-            aria-label="縮放比例 100% 至 300%"
-            aria-valuemin="100"
+            aria-label="縮放比例 50% 至 300%"
+            aria-valuemin="50"
             aria-valuemax="300"
           />
           <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
@@ -357,11 +383,13 @@ function renderViewer(
   const zoneNext = app.querySelector<HTMLButtonElement>('#zone-next')!;
   const zoomSlider = app.querySelector<HTMLInputElement>('#zoom-slider')!;
   const zoomPct = app.querySelector<HTMLSpanElement>('#zoom-pct')!;
+  const viewerRoot = app.querySelector<HTMLDivElement>('.viewer')!;
+  const btnFullscreen = app.querySelector<HTMLButtonElement>('#btn-fullscreen')!;
 
   let doc: PDFDocumentProxy | null = null;
   let currentPage = 1;
   let spread = false;
-  /** 在「適合視窗」基礎上的倍率，1 = 100% … 3 = 300% */
+  /** 在「適合視窗」基礎上的倍率，0.5 = 50% … 3 = 300% */
   let zoomMul = 1;
   let zoomSliderRaf = 0;
   let cancelled = false;
@@ -393,7 +421,7 @@ function renderViewer(
     const v = ++layoutVersion;
     const rect = stageWrap.getBoundingClientRect();
     const logical = pageNumsToShow();
-    const baseFit = await fitScale(doc, logical, rect.width, rect.height);
+    const baseFit = await fitScale(doc, logical, rect.width, rect.height, 'contain');
     if (v !== layoutVersion || cancelled || !doc) return;
     const renderScale = baseFit * zoomMul;
     const forRender = pageNumsForRender(logical);
@@ -447,6 +475,28 @@ function renderViewer(
   });
   ro.observe(stageWrap);
 
+  /** iOS Safari 等環境常不支援元素全螢幕，隱藏按鈕以免誤導 */
+  const canFullscreen =
+    typeof viewerRoot.requestFullscreen === 'function' ||
+    typeof (viewerRoot as HTMLElement & { webkitRequestFullscreen?: unknown }).webkitRequestFullscreen ===
+      'function';
+  if (!canFullscreen) btnFullscreen.hidden = true;
+
+  function syncFullscreenButton(): void {
+    const on = getFullscreenElement() === viewerRoot;
+    btnFullscreen.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btnFullscreen.setAttribute('aria-label', on ? '離開全螢幕' : '全螢幕');
+    btnFullscreen.textContent = on ? '離開全螢幕' : '全螢幕';
+  }
+
+  function onFullscreenChange(): void {
+    syncFullscreenButton();
+    void updateScaleAndRender();
+  }
+
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
   let touchStartX: number | null = null;
 
   function onTouchStart(e: TouchEvent): void {
@@ -489,7 +539,7 @@ function renderViewer(
   });
   function applyZoomFromSlider(): void {
     const raw = Number.parseInt(zoomSlider.value, 10);
-    const pct = Math.max(100, Math.min(300, Number.isFinite(raw) ? raw : 100));
+    const pct = Math.max(50, Math.min(300, Number.isFinite(raw) ? raw : 100));
     zoomMul = pct / 100;
     zoomPct.textContent = `${pct}%`;
     zoomSlider.setAttribute('aria-valuenow', String(pct));
@@ -505,6 +555,20 @@ function renderViewer(
   }
 
   zoomSlider.addEventListener('input', onZoomSliderInput);
+  btnFullscreen.addEventListener('click', () => {
+    if (!canFullscreen) return;
+    void (async () => {
+      try {
+        if (getFullscreenElement() === viewerRoot) {
+          await exitFullscreenCompat();
+        } else {
+          await requestFullscreenCompat(viewerRoot);
+        }
+      } catch {
+        /* 使用者拒絕或環境不支援 */
+      }
+    })();
+  });
   btnGoto.addEventListener('click', () => applyGoto());
   gotoInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') applyGoto();
@@ -512,6 +576,11 @@ function renderViewer(
 
   viewerCleanup = () => {
     cancelled = true;
+    document.removeEventListener('fullscreenchange', onFullscreenChange);
+    document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    if (getFullscreenElement() === viewerRoot) {
+      void exitFullscreenCompat();
+    }
     ro.disconnect();
     window.removeEventListener('keydown', onKey);
     stageWrap.removeEventListener('touchstart', onTouchStart);
