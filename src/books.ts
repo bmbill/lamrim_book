@@ -104,6 +104,17 @@ export function bodyPageToPdfPage(item: BookItem, bodyPage: number): number {
   return start + (bodyPage - 1);
 }
 
+/** 目前 PDF 頁對應的「正文頁」顯示用（1-based）；雙正文／頁時取該 PDF 頁的第一個正文頁 */
+export function pdfPageToBodyPage(item: BookItem, pdfPage: number): number {
+  const p = Math.max(1, Math.floor(pdfPage));
+  const start = item.bodyStartPdfPage;
+  if (p < start) return 1;
+  if (item.twoBodyPagesPerPdfPage) {
+    return 2 * (p - start) + 1;
+  }
+  return p - start + 1;
+}
+
 /** 由「冊內正文頁」反查（南普陀）：PDF 第 9 頁 = 冊內正文第 1 頁 */
 export function nanputuoBodyToPdfPage(bodyInVolume: number): number {
   if (bodyInVolume < 1) return 1;

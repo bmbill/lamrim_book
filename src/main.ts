@@ -3,6 +3,7 @@ import {
   LAMRIM_MAIN,
   NANSHAN_LAY,
   bodyPageToPdfPage,
+  pdfPageToBodyPage,
   nanputuoVolumeId,
   nanputuoVolumes,
   nanshanVinayaBookId,
@@ -773,10 +774,23 @@ function renderViewer(
       chkSpread.checked = false;
       zoomSlider.value = '100';
       applyZoomFromSlider();
+      const gotoBodyRadio = app.querySelector<HTMLInputElement>('input[name="goto-mode"][value="body"]')!;
+      const gotoPdfRadio = app.querySelector<HTMLInputElement>('input[name="goto-mode"][value="pdf"]')!;
       if (initial?.initialPdf != null && Number.isFinite(initial.initialPdf)) {
         currentPage = clampPage(Math.floor(initial.initialPdf!));
+        gotoPdfRadio.checked = true;
+        gotoBodyRadio.checked = false;
+        gotoInput.value = String(currentPage);
       } else if (initial?.initialBody != null && Number.isFinite(initial.initialBody)) {
-        currentPage = clampPage(bodyPageToPdfPage(book, Math.floor(initial.initialBody!)));
+        const bRequested = Math.floor(initial.initialBody!);
+        currentPage = clampPage(bodyPageToPdfPage(book, bRequested));
+        gotoBodyRadio.checked = true;
+        gotoPdfRadio.checked = false;
+        gotoInput.value = String(bRequested);
+      } else {
+        gotoBodyRadio.checked = true;
+        gotoPdfRadio.checked = false;
+        gotoInput.value = String(pdfPageToBodyPage(book, currentPage));
       }
       stripHashQuery(book.id);
       loadingEl.classList.add('hidden');
