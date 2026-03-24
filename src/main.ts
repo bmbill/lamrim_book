@@ -73,6 +73,20 @@ function visibleFitSize(el: HTMLElement): { w: number; h: number } {
   return { w, h };
 }
 
+/** 與 index.html 一致；用於 iOS 聚焦輸入後短暫限制縮放以還原整頁比例 */
+const VIEWPORT_META_DEFAULT = 'width=device-width, initial-scale=1, viewport-fit=cover';
+
+/** iOS 輸入頁碼常仍會整頁放大；前往後 blur 並短暫改 viewport 再還原，盡量回到原顯示比例 */
+function resetViewportZoomAfterKeyboard(): void {
+  if (!/iP(hone|ad|od)/i.test(navigator.userAgent)) return;
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  meta.setAttribute('content', `${VIEWPORT_META_DEFAULT}, maximum-scale=1`);
+  window.setTimeout(() => {
+    meta.setAttribute('content', VIEWPORT_META_DEFAULT);
+  }, 250);
+}
+
 const LS_HOME_DISPLAY = 'lamrim-home-display';
 type HomeDisplayMode = 'list' | 'cards';
 type HomeCardFocus = 'none' | 'lamrim' | 'lay';
@@ -365,32 +379,38 @@ function renderViewer(
         <button type="button" class="zone zone-right" id="zone-next" aria-label="下一頁"></button>
       </div>
       <div class="viewer-toolbar">
-        <button type="button" id="btn-back">返回</button>
-        <span class="grow" id="title">${book.title}</span>
-        <label><input type="checkbox" id="chk-spread" /> 雙頁</label>
-        <button type="button" id="btn-fullscreen" aria-pressed="false" aria-label="全螢幕">
-          全螢幕
-        </button>
-        <label class="zoom-label">縮放
-          <input
-            type="range"
-            id="zoom-slider"
-            min="50"
-            max="300"
-            step="1"
-            value="100"
-            aria-label="縮放比例 50% 至 300%"
-            aria-valuemin="50"
-            aria-valuemax="300"
-          />
-          <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
-        </label>
-        <button type="button" id="btn-prev">上一頁</button>
-        <button type="button" id="btn-next">下一頁</button>
+        <div class="viewer-toolbar__row viewer-toolbar__row--top">
+          <button type="button" id="btn-back">返回</button>
+          <span class="grow" id="title">${book.title}</span>
+          <label><input type="checkbox" id="chk-spread" /> 雙頁</label>
+          <button type="button" id="btn-fullscreen" aria-pressed="false" aria-label="全螢幕">
+            全螢幕
+          </button>
+        </div>
+        <div class="viewer-toolbar__row viewer-toolbar__row--zoom">
+          <label class="zoom-label">縮放
+            <input
+              type="range"
+              id="zoom-slider"
+              min="50"
+              max="300"
+              step="1"
+              value="100"
+              aria-label="縮放比例 50% 至 300%"
+              aria-valuemin="50"
+              aria-valuemax="300"
+            />
+            <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
+          </label>
+        </div>
+        <div class="viewer-toolbar__row viewer-toolbar__row--nav">
+          <button type="button" id="btn-prev">上一頁</button>
+          <button type="button" id="btn-next">下一頁</button>
+        </div>
         <div class="goto-panel" id="goto-panel">
           <label><input type="radio" name="goto-mode" value="body" checked /> 正文頁</label>
           <label><input type="radio" name="goto-mode" value="pdf" /> 檔案頁</label>
-          <input type="number" id="goto-input" min="1" value="1" />
+          <input type="number" id="goto-input" min="1" value="1" inputmode="numeric" pattern="[0-9]*" autocomplete="off" />
           <button type="button" class="primary" id="btn-goto">前往</button>
         </div>
         <div class="status-line" id="status"></div>
@@ -427,8 +447,17 @@ function renderViewer(
   let layoutVersion = 0;
   /** iOS 等不支援元素全螢幕 API 時，改為隱藏工具列的沉浸閱讀 */
   let immersive = false;
+  /**
+   * 第一本書／同一版面下「100%」對應的 contain 基準。PDF 每頁尺寸不同，若每頁重算 rawFit，
+   * 換頁後即使滑桿仍 100% 畫面也會忽大忽小；維持 max(sticky, rawFit) 可讓滿版感一致（較大頁可捲動）。
+   */
+  let stickyContainScale: number | null = null;
 
   const canvases: HTMLCanvasElement[] = [document.createElement('canvas'), document.createElement('canvas')];
+
+  function invalidateStickyContainScale(): void {
+    stickyContainScale = null;
+  }
 
   /** 邏輯上的 PDF 頁序（較小者為右頁／先讀） */
   function pageNumsToShow(): number[] {
@@ -453,8 +482,10 @@ function renderViewer(
     const v = ++layoutVersion;
     const { w: fitW, h: fitH } = visibleFitSize(stageWrap);
     const logical = pageNumsToShow();
-    const baseFit = await fitScale(doc, logical, fitW, fitH, 'contain');
+    const rawFit = await fitScale(doc, logical, fitW, fitH, 'contain');
     if (v !== layoutVersion || cancelled || !doc) return;
+    if (stickyContainScale === null) stickyContainScale = rawFit;
+    const baseFit = Math.max(stickyContainScale, rawFit);
     const renderScale = baseFit * zoomMul;
     const forRender = pageNumsForRender(logical);
     stage.classList.toggle('viewer-stage--spread-single-right', spread && logical.length === 1);
@@ -499,21 +530,28 @@ function renderViewer(
     } else {
       currentPage = clampPage(bodyPageToPdfPage(book, Math.floor(raw)));
     }
+    gotoInput.blur();
+    resetViewportZoomAfterKeyboard();
     void updateScaleAndRender();
   }
 
   const ro = new ResizeObserver(() => {
+    invalidateStickyContainScale();
     void updateScaleAndRender();
   });
   ro.observe(stageWrap);
 
   const visualViewport = window.visualViewport;
-  function onVisualViewportChange(): void {
+  function onVisualViewportResize(): void {
+    invalidateStickyContainScale();
+    void updateScaleAndRender();
+  }
+  function onVisualViewportScroll(): void {
     void updateScaleAndRender();
   }
   if (visualViewport) {
-    visualViewport.addEventListener('resize', onVisualViewportChange);
-    visualViewport.addEventListener('scroll', onVisualViewportChange);
+    visualViewport.addEventListener('resize', onVisualViewportResize);
+    visualViewport.addEventListener('scroll', onVisualViewportScroll);
   }
 
   const canFullscreen =
@@ -540,6 +578,7 @@ function renderViewer(
   }
 
   function onFullscreenChange(): void {
+    invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
   }
@@ -644,6 +683,7 @@ function renderViewer(
   chkSpread.addEventListener('change', () => {
     spread = chkSpread.checked;
     currentPage = clampPage(currentPage);
+    invalidateStickyContainScale();
     void updateScaleAndRender();
   });
   function applyZoomFromSlider(): void {
@@ -664,12 +704,14 @@ function renderViewer(
     void (async () => {
       if (getFullscreenElement() === viewerRoot) {
         await exitFullscreenCompat();
+        invalidateStickyContainScale();
         syncChrome();
         void updateScaleAndRender();
         return;
       }
       if (immersive) {
         immersive = false;
+        invalidateStickyContainScale();
         syncChrome();
         void updateScaleAndRender();
         return;
@@ -683,12 +725,14 @@ function renderViewer(
       } else {
         immersive = true;
       }
+      invalidateStickyContainScale();
       syncChrome();
       void updateScaleAndRender();
     })();
   });
   btnExitImmersive.addEventListener('click', () => {
     immersive = false;
+    invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
   });
@@ -707,8 +751,8 @@ function renderViewer(
       void exitFullscreenCompat();
     }
     if (visualViewport) {
-      visualViewport.removeEventListener('resize', onVisualViewportChange);
-      visualViewport.removeEventListener('scroll', onVisualViewportChange);
+      visualViewport.removeEventListener('resize', onVisualViewportResize);
+      visualViewport.removeEventListener('scroll', onVisualViewportScroll);
     }
     ro.disconnect();
     window.removeEventListener('keydown', onKey);

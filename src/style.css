@@ -291,6 +291,29 @@ select {
   font-size: 0.8rem;
 }
 
+.viewer-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  width: 100%;
+}
+
+.viewer-toolbar__row--zoom {
+  justify-content: center;
+}
+
+.viewer-toolbar__row--zoom .zoom-label {
+  flex: 0 1 18rem;
+  max-width: 100%;
+  min-width: min(100%, 11rem);
+}
+
+.viewer-toolbar__row--nav {
+  justify-content: center;
+  gap: 0.5rem;
+}
+
 .viewer-toolbar .grow {
   flex: 1;
   min-width: 4rem;
@@ -305,14 +328,16 @@ select {
 }
 
 .viewer-toolbar label.zoom-label {
-  flex: 1 1 10rem;
-  max-width: 14rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .viewer-toolbar label.zoom-label input[type='range'] {
   flex: 1;
   min-width: 4.5rem;
   max-width: 10rem;
+  width: 6rem;
   accent-color: var(--accent);
 }
 
@@ -444,8 +469,9 @@ button.zone:focus-visible {
 
 .goto-panel input[type='number'] {
   width: 4rem;
-  /* iOS Safari：小於 16px 的欄位聚焦時會整頁放大，干擾 PDF 閱讀 */
-  font-size: 16px;
+  /* iOS：至少 16px 才較不會聚焦時整頁放大；!important 避免繼承 toolbar 0.8rem */
+  font-size: 16px !important;
+  -webkit-text-size-adjust: 100%;
 }
 
 .status-line {
