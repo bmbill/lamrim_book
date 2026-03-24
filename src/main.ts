@@ -375,8 +375,9 @@ function renderViewer(
         </button>
         <div class="loading" id="loading">載入中…</div>
         <div class="viewer-stage" id="stage"></div>
-        <button type="button" class="zone zone-left" id="zone-prev" aria-label="上一頁"></button>
-        <button type="button" class="zone zone-right" id="zone-next" aria-label="下一頁"></button>
+        <!-- 固定左開：左＝下一頁、右＝上一頁 -->
+        <button type="button" class="zone zone-left" id="zone-left" aria-label="下一頁"></button>
+        <button type="button" class="zone zone-right" id="zone-right" aria-label="上一頁"></button>
       </div>
       <div class="viewer-toolbar">
         <div class="viewer-toolbar__row viewer-toolbar__row--top">
@@ -388,24 +389,26 @@ function renderViewer(
           </button>
         </div>
         <div class="viewer-toolbar__row viewer-toolbar__row--zoom">
-          <label class="zoom-label">縮放
-            <input
-              type="range"
-              id="zoom-slider"
-              min="50"
-              max="300"
-              step="1"
-              value="100"
-              aria-label="縮放比例 50% 至 300%"
-              aria-valuemin="50"
-              aria-valuemax="300"
-            />
-            <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
-          </label>
+          <div class="zoom-row-inner">
+            <label class="zoom-label">縮放
+              <input
+                type="range"
+                id="zoom-slider"
+                min="50"
+                max="300"
+                step="1"
+                value="100"
+                aria-label="縮放比例 50% 至 300%"
+                aria-valuemin="50"
+                aria-valuemax="300"
+              />
+              <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
+            </label>
+          </div>
         </div>
         <div class="viewer-toolbar__row viewer-toolbar__row--nav">
-          <button type="button" id="btn-prev">上一頁</button>
           <button type="button" id="btn-next">下一頁</button>
+          <button type="button" id="btn-prev">上一頁</button>
         </div>
         <div class="goto-panel" id="goto-panel">
           <label><input type="radio" name="goto-mode" value="body" checked /> 正文頁</label>
@@ -428,8 +431,8 @@ function renderViewer(
   const btnPrev = app.querySelector<HTMLButtonElement>('#btn-prev')!;
   const btnNext = app.querySelector<HTMLButtonElement>('#btn-next')!;
   const btnGoto = app.querySelector<HTMLButtonElement>('#btn-goto')!;
-  const zonePrev = app.querySelector<HTMLButtonElement>('#zone-prev')!;
-  const zoneNext = app.querySelector<HTMLButtonElement>('#zone-next')!;
+  const zoneLeft = app.querySelector<HTMLButtonElement>('#zone-left')!;
+  const zoneRight = app.querySelector<HTMLButtonElement>('#zone-right')!;
   const zoomSlider = app.querySelector<HTMLInputElement>('#zoom-slider')!;
   const zoomPct = app.querySelector<HTMLSpanElement>('#zoom-pct')!;
   const viewerRoot = app.querySelector<HTMLDivElement>('.viewer')!;
@@ -516,6 +519,14 @@ function renderViewer(
     void updateScaleAndRender();
   }
 
+  function onZoneLeftClick(): void {
+    step(1);
+  }
+
+  function onZoneRightClick(): void {
+    step(-1);
+  }
+
   function applyGoto(): void {
     if (!doc) return;
     const mode = app.querySelector<HTMLInputElement>('input[name="goto-mode"]:checked')!.value;
@@ -586,7 +597,6 @@ function renderViewer(
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-  let touchStartX: number | null = null;
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchStartZoomMul = 1;
@@ -609,13 +619,8 @@ function renderViewer(
   function onTouchStart(e: TouchEvent): void {
     if (e.touches.length === 2) {
       pinchActive = true;
-      touchStartX = null;
       pinchStartDist = Math.max(touchDistance(e.touches), 8);
       pinchStartZoomMul = zoomMul;
-      return;
-    }
-    if (e.touches.length === 1 && !pinchActive) {
-      touchStartX = e.touches[0].clientX;
     }
   }
 
@@ -623,7 +628,6 @@ function renderViewer(
     if (e.touches.length !== 2) return;
     if (!pinchActive) {
       pinchActive = true;
-      touchStartX = null;
       pinchStartDist = Math.max(touchDistance(e.touches), 8);
       pinchStartZoomMul = zoomMul;
     }
@@ -640,15 +644,6 @@ function renderViewer(
 
   function onTouchEnd(e: TouchEvent): void {
     if (e.touches.length < 2) pinchActive = false;
-    if (e.touches.length === 0 && touchStartX !== null && e.changedTouches.length === 1) {
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      touchStartX = null;
-      if (Math.abs(dx) < 48) return;
-      if (dx > 0) step(-1);
-      else step(1);
-      return;
-    }
-    if (e.touches.length === 0) touchStartX = null;
   }
 
   /** iOS：攔截預設 pinch 手勢，改由我們重繪 PDF */
@@ -676,10 +671,10 @@ function renderViewer(
   window.addEventListener('keydown', onKey);
 
   btnBack.addEventListener('click', () => navigateHome());
-  btnPrev.addEventListener('click', () => step(-1));
   btnNext.addEventListener('click', () => step(1));
-  zonePrev.addEventListener('click', () => step(-1));
-  zoneNext.addEventListener('click', () => step(1));
+  btnPrev.addEventListener('click', () => step(-1));
+  zoneLeft.addEventListener('click', onZoneLeftClick);
+  zoneRight.addEventListener('click', onZoneRightClick);
   chkSpread.addEventListener('change', () => {
     spread = chkSpread.checked;
     currentPage = clampPage(currentPage);
@@ -756,6 +751,8 @@ function renderViewer(
     }
     ro.disconnect();
     window.removeEventListener('keydown', onKey);
+    zoneLeft.removeEventListener('click', onZoneLeftClick);
+    zoneRight.removeEventListener('click', onZoneRightClick);
     stageWrap.removeEventListener('touchstart', onTouchStart);
     stageWrap.removeEventListener('touchmove', onTouchMove);
     stageWrap.removeEventListener('touchend', onTouchEnd);
