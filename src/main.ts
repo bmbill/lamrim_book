@@ -451,6 +451,8 @@ function renderViewer(
   let layoutVersion = 0;
   /** iOS 等不支援元素全螢幕 API 時，改為隱藏工具列的沉浸閱讀 */
   let immersive = false;
+  /** 目前閱讀區放大是否由「手機橫向自動」觸發（直向時才自動收回，避免蓋過手動全螢幕） */
+  let autoChromeApplied = false;
   /**
    * 第一本書／同一版面下「100%」對應的 contain 基準。PDF 每頁尺寸不同，若每頁重算 rawFit，
    * 換頁後即使滑桿仍 100% 畫面也會忽大忽小；維持 max(sticky, rawFit) 可讓滿版感一致（較大頁可捲動）。
@@ -598,6 +600,72 @@ function renderViewer(
   document.addEventListener('fullscreenchange', onFullscreenChange);
   document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
+  async function enterChromeFullscreenOrImmersive(): Promise<void> {
+    if (getFullscreenElement() === viewerRoot || immersive) return;
+    if (canFullscreen) {
+      try {
+        await requestFullscreenCompat(viewerRoot);
+      } catch {
+        immersive = true;
+      }
+    } else {
+      immersive = true;
+    }
+    invalidateStickyContainScale();
+    syncChrome();
+    void updateScaleAndRender();
+  }
+
+  async function leaveChromeFullscreenAndImmersive(): Promise<void> {
+    if (getFullscreenElement() === viewerRoot) {
+      await exitFullscreenCompat();
+    }
+    immersive = false;
+    invalidateStickyContainScale();
+    syncChrome();
+    void updateScaleAndRender();
+  }
+
+  function phoneLandscapeEligibleForAutoFs(): boolean {
+    try {
+      if (typeof window.matchMedia !== 'function') return false;
+      if (!window.matchMedia('(orientation: landscape)').matches) return false;
+      const coarse = window.matchMedia('(pointer: coarse)').matches;
+      const narrow = window.matchMedia('(max-width: 1024px)').matches;
+      return coarse || narrow;
+    } catch {
+      return false;
+    }
+  }
+
+  const mqOrientationLandscape = window.matchMedia('(orientation: landscape)');
+  let autoLandscapeChromeRaf = 0;
+
+  function scheduleAutoLandscapeChrome(): void {
+    if (cancelled) return;
+    if (autoLandscapeChromeRaf !== 0) cancelAnimationFrame(autoLandscapeChromeRaf);
+    autoLandscapeChromeRaf = requestAnimationFrame(() => {
+      autoLandscapeChromeRaf = 0;
+      window.setTimeout(syncAutoLandscapeChrome, 80);
+    });
+  }
+
+  function syncAutoLandscapeChrome(): void {
+    if (cancelled) return;
+    const land = phoneLandscapeEligibleForAutoFs();
+    if (land) {
+      if (getFullscreenElement() === viewerRoot || immersive) return;
+      autoChromeApplied = true;
+      void enterChromeFullscreenOrImmersive();
+    } else if (autoChromeApplied) {
+      autoChromeApplied = false;
+      void leaveChromeFullscreenAndImmersive();
+    }
+  }
+
+  mqOrientationLandscape.addEventListener('change', scheduleAutoLandscapeChrome);
+  window.addEventListener('orientationchange', scheduleAutoLandscapeChrome);
+
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchStartZoomMul = 1;
@@ -698,39 +766,17 @@ function renderViewer(
   zoomSlider.addEventListener('input', onZoomSliderInput);
   btnFullscreen.addEventListener('click', () => {
     void (async () => {
-      if (getFullscreenElement() === viewerRoot) {
-        await exitFullscreenCompat();
-        invalidateStickyContainScale();
-        syncChrome();
-        void updateScaleAndRender();
+      autoChromeApplied = false;
+      if (getFullscreenElement() === viewerRoot || immersive) {
+        await leaveChromeFullscreenAndImmersive();
         return;
       }
-      if (immersive) {
-        immersive = false;
-        invalidateStickyContainScale();
-        syncChrome();
-        void updateScaleAndRender();
-        return;
-      }
-      if (canFullscreen) {
-        try {
-          await requestFullscreenCompat(viewerRoot);
-        } catch {
-          immersive = true;
-        }
-      } else {
-        immersive = true;
-      }
-      invalidateStickyContainScale();
-      syncChrome();
-      void updateScaleAndRender();
+      await enterChromeFullscreenOrImmersive();
     })();
   });
   btnExitImmersive.addEventListener('click', () => {
-    immersive = false;
-    invalidateStickyContainScale();
-    syncChrome();
-    void updateScaleAndRender();
+    autoChromeApplied = false;
+    void leaveChromeFullscreenAndImmersive();
   });
   syncChrome();
   btnGoto.addEventListener('click', () => applyGoto());
@@ -740,6 +786,13 @@ function renderViewer(
 
   viewerCleanup = () => {
     cancelled = true;
+    autoChromeApplied = false;
+    if (autoLandscapeChromeRaf !== 0) {
+      cancelAnimationFrame(autoLandscapeChromeRaf);
+      autoLandscapeChromeRaf = 0;
+    }
+    mqOrientationLandscape.removeEventListener('change', scheduleAutoLandscapeChrome);
+    window.removeEventListener('orientationchange', scheduleAutoLandscapeChrome);
     immersive = false;
     document.removeEventListener('fullscreenchange', onFullscreenChange);
     document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
@@ -795,6 +848,7 @@ function renderViewer(
       stripHashQuery(book.id);
       loadingEl.classList.add('hidden');
       await updateScaleAndRender();
+      scheduleAutoLandscapeChrome();
     } catch (err) {
       if (!cancelled) {
         loadingEl.textContent = '無法載入檔案';
