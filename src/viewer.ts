@@ -67,7 +67,8 @@ export async function renderPages(
   cancelInFlightPdfRenders();
 
   try {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    /** 光柵解析度上限；3x 螢幕仍維持較銳利（PDF 經 canvas 繪製，非向量即時放大） */
+    const dpr = Math.min(window.devicePixelRatio || 1, 3);
     for (let i = 0; i < pageNums.length; i++) {
       const p = pageNums[i];
       const canvas = canvases[i];

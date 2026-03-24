@@ -47,6 +47,26 @@ async function requestFullscreenCompat(el: HTMLElement): Promise<void> {
   }
 }
 
+/**
+ * 手機上 layout 視窗高度常大於「實際可視區」（網址列、100vh/dvh 落差）。用 visualViewport 與元素的交集
+ * 計算 contain 用的寬高，避免 baseFit 過大、預設 100% 卻像放大鏡只見局部。
+ */
+function visibleFitSize(el: HTMLElement): { w: number; h: number } {
+  const r = el.getBoundingClientRect();
+  const vv = window.visualViewport;
+  if (!vv) {
+    return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+  }
+  const left = Math.max(r.left, vv.offsetLeft);
+  const top = Math.max(r.top, vv.offsetTop);
+  const right = Math.min(r.right, vv.offsetLeft + vv.width);
+  const bottom = Math.min(r.bottom, vv.offsetTop + vv.height);
+  const w = right - left;
+  const h = bottom - top;
+  if (w >= 32 && h >= 32) return { w, h };
+  return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+}
+
 const LS_HOME_DISPLAY = 'lamrim-home-display';
 type HomeDisplayMode = 'list' | 'cards';
 type HomeCardFocus = 'none' | 'lamrim' | 'lay';
@@ -419,9 +439,9 @@ function renderViewer(
   async function updateScaleAndRender(): Promise<void> {
     if (!doc || cancelled) return;
     const v = ++layoutVersion;
-    const rect = stageWrap.getBoundingClientRect();
+    const { w: fitW, h: fitH } = visibleFitSize(stageWrap);
     const logical = pageNumsToShow();
-    const baseFit = await fitScale(doc, logical, rect.width, rect.height, 'contain');
+    const baseFit = await fitScale(doc, logical, fitW, fitH, 'contain');
     if (v !== layoutVersion || cancelled || !doc) return;
     const renderScale = baseFit * zoomMul;
     const forRender = pageNumsForRender(logical);
@@ -474,6 +494,15 @@ function renderViewer(
     void updateScaleAndRender();
   });
   ro.observe(stageWrap);
+
+  const visualViewport = window.visualViewport;
+  function onVisualViewportChange(): void {
+    void updateScaleAndRender();
+  }
+  if (visualViewport) {
+    visualViewport.addEventListener('resize', onVisualViewportChange);
+    visualViewport.addEventListener('scroll', onVisualViewportChange);
+  }
 
   /** iOS Safari 等環境常不支援元素全螢幕，隱藏按鈕以免誤導 */
   const canFullscreen =
@@ -580,6 +609,10 @@ function renderViewer(
     document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
     if (getFullscreenElement() === viewerRoot) {
       void exitFullscreenCompat();
+    }
+    if (visualViewport) {
+      visualViewport.removeEventListener('resize', onVisualViewportChange);
+      visualViewport.removeEventListener('scroll', onVisualViewportChange);
     }
     ro.disconnect();
     window.removeEventListener('keydown', onKey);
