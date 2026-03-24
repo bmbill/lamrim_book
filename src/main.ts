@@ -434,6 +434,8 @@ function renderViewer(
   let cancelled = false;
   /** 避免縮放／resize 連續觸發時，舊一輪在 await 後仍改寫狀態列 */
   let layoutVersion = 0;
+  /** orientation／全螢幕後延遲重算 contain 基準用的 timeout（cleanup 時清除） */
+  let stickyRefitSettleTimer = 0;
   /** iOS 等不支援元素全螢幕 API 時，改為隱藏工具列的沉浸閱讀 */
   let immersive = false;
   /** 目前閱讀區放大是否由「手機橫向自動」觸發（直向時才自動收回，避免蓋過手動全螢幕） */
@@ -448,6 +450,31 @@ function renderViewer(
 
   function invalidateStickyContainScale(): void {
     stickyContainScale = null;
+  }
+
+  /**
+   * 橫向、自動全螢幕或工具列隱藏後，flex 與 safe-area 常晚一兩幀才穩定；若立刻重算會把 stickyContainScale
+   * 鎖在舊視窗上，100% 看起來不對。延後再 invalidate 一次讓「適合視窗」對齊新寬高。
+   */
+  function scheduleStickyRefitAfterLayoutSettle(): void {
+    if (stickyRefitSettleTimer !== 0) {
+      window.clearTimeout(stickyRefitSettleTimer);
+      stickyRefitSettleTimer = 0;
+    }
+    const bump = (): void => {
+      if (cancelled || !doc) return;
+      invalidateStickyContainScale();
+      void updateScaleAndRender();
+    };
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        bump();
+      });
+    });
+    stickyRefitSettleTimer = window.setTimeout(() => {
+      stickyRefitSettleTimer = 0;
+      bump();
+    }, 160);
   }
 
   /** 邏輯上的 PDF 頁序（較小者為右頁／先讀） */
@@ -580,6 +607,7 @@ function renderViewer(
     invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
+    scheduleStickyRefitAfterLayoutSettle();
   }
 
   document.addEventListener('fullscreenchange', onFullscreenChange);
@@ -599,6 +627,7 @@ function renderViewer(
     invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
+    scheduleStickyRefitAfterLayoutSettle();
   }
 
   async function leaveChromeFullscreenAndImmersive(): Promise<void> {
@@ -609,6 +638,7 @@ function renderViewer(
     invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
+    scheduleStickyRefitAfterLayoutSettle();
   }
 
   function phoneLandscapeEligibleForAutoFs(): boolean {
@@ -630,7 +660,10 @@ function renderViewer(
     if (autoLandscapeChromeRaf !== 0) cancelAnimationFrame(autoLandscapeChromeRaf);
     autoLandscapeChromeRaf = requestAnimationFrame(() => {
       autoLandscapeChromeRaf = 0;
-      window.setTimeout(syncAutoLandscapeChrome, 80);
+      window.setTimeout(() => {
+        syncAutoLandscapeChrome();
+        scheduleStickyRefitAfterLayoutSettle();
+      }, 80);
     });
   }
 
@@ -771,6 +804,10 @@ function renderViewer(
   viewerCleanup = () => {
     cancelled = true;
     autoChromeApplied = false;
+    if (stickyRefitSettleTimer !== 0) {
+      window.clearTimeout(stickyRefitSettleTimer);
+      stickyRefitSettleTimer = 0;
+    }
     if (autoLandscapeChromeRaf !== 0) {
       cancelAnimationFrame(autoLandscapeChromeRaf);
       autoLandscapeChromeRaf = 0;
