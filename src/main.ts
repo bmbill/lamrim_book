@@ -49,28 +49,13 @@ async function requestFullscreenCompat(el: HTMLElement): Promise<void> {
 }
 
 /**
- * 手機上 layout 視窗高度常大於「實際可視區」（網址列、100vh/dvh 落差）。用 visualViewport 與元素的交集
- * 計算 contain 用的寬高，避免 baseFit 過大、預設 100% 卻像放大鏡只見局部。
+ * 閱讀區 #stage-wrap 的捲動視窗尺寸（client 內框）。contain 應對齊「配置給 PDF 的區域」，若改用 visualViewport
+ * 與元素的交集，在直向手機上常只剩可視帶的一條高度，PDF 會被算得過小、浮在大片黑底中央。
  */
-function visibleFitSize(el: HTMLElement): { w: number; h: number } {
+function readingStageFitSize(el: HTMLElement): { w: number; h: number } {
   const r = el.getBoundingClientRect();
-  const vv = window.visualViewport;
-  const rw = Math.max(1, r.width);
-  const rh = Math.max(1, r.height);
-  if (!vv) return { w: rw, h: rh };
-
-  const interL = Math.max(r.left, vv.offsetLeft);
-  const interT = Math.max(r.top, vv.offsetTop);
-  const interR = Math.min(r.right, vv.offsetLeft + vv.width);
-  const interB = Math.min(r.bottom, vv.offsetTop + vv.height);
-  const interW = interR - interL;
-  const interH = interB - interT;
-
-  const capW = Math.min(rw, vv.width);
-  const capH = Math.min(rh, vv.height, Math.max(0, vv.offsetTop + vv.height - r.top));
-
-  const w = Math.max(32, Math.min(interW >= 32 ? interW : capW, capW));
-  const h = Math.max(32, Math.min(interH >= 32 ? interH : capH, capH));
+  const w = Math.max(32, el.clientWidth > 0 ? el.clientWidth : r.width);
+  const h = Math.max(32, el.clientHeight > 0 ? el.clientHeight : r.height);
   return { w, h };
 }
 
@@ -486,7 +471,7 @@ function renderViewer(
   async function updateScaleAndRender(): Promise<void> {
     if (!doc || cancelled) return;
     const v = ++layoutVersion;
-    const { w: fitW, h: fitH } = visibleFitSize(stageWrap);
+    const { w: fitW, h: fitH } = readingStageFitSize(stageWrap);
     const logical = pageNumsToShow();
     const rawFit = await fitScale(doc, logical, fitW, fitH, 'contain');
     if (v !== layoutVersion || cancelled || !doc) return;
@@ -630,9 +615,8 @@ function renderViewer(
     try {
       if (typeof window.matchMedia !== 'function') return false;
       if (!window.matchMedia('(orientation: landscape)').matches) return false;
-      const coarse = window.matchMedia('(pointer: coarse)').matches;
-      const narrow = window.matchMedia('(max-width: 1024px)').matches;
-      return coarse || narrow;
+      /* 僅觸控為主裝置；勿用 max-width，否則筆電窄視窗也會被當手機而自動全螢幕 */
+      return window.matchMedia('(pointer: coarse)').matches;
     } catch {
       return false;
     }
