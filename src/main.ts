@@ -849,6 +849,14 @@ function renderViewer(
       loadingEl.classList.add('hidden');
       await updateScaleAndRender();
       scheduleAutoLandscapeChrome();
+      /* 首幀時 flex／visualViewport 常尚未穩定，sticky 會鎖錯 rawFit（易過大）；延後一輪再重算 contain */
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (cancelled || !doc) return;
+          invalidateStickyContainScale();
+          void updateScaleAndRender();
+        });
+      });
     } catch (err) {
       if (!cancelled) {
         loadingEl.textContent = '無法載入檔案';
