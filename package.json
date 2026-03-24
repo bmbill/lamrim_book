@@ -1,0 +1,21 @@
+{
+  "name": "lamrim-book-reader",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "icons": "node scripts/build-icons.mjs",
+    "build": "npx tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "sharp": "^0.33.5",
+    "typescript": "~5.6.2",
+    "vite": "^6.0.3",
+    "vite-plugin-pwa": "^0.21.1"
+  }
+}
