@@ -291,6 +291,14 @@ select {
   font-size: 0.8rem;
 }
 
+/* 行動版 Safari/Chrome 對快速連點按鈕常誤判雙擊而放大整頁；manipulation 停用雙擊縮放，仍可用滑桿與捲動 */
+.viewer-toolbar button,
+.viewer-toolbar label,
+.viewer-toolbar input[type='range'],
+.viewer-toolbar input[type='number'] {
+  touch-action: manipulation;
+}
+
 .viewer-toolbar__row {
   display: flex;
   flex-wrap: wrap;
@@ -402,6 +410,7 @@ select {
   color: var(--text);
   border: 1px solid #334155;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  touch-action: manipulation;
 }
 
 .viewer-exit-immersive:active {
@@ -430,6 +439,7 @@ button.zone {
   color: transparent;
   -webkit-tap-highlight-color: transparent;
   appearance: none;
+  touch-action: manipulation;
 }
 
 button.zone:hover {
