@@ -9,6 +9,8 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
+      /** 開發時不要註冊 SW，避免舊快取規則攔截 /data/*.gz 導致 Failed to fetch */
+      devOptions: { enabled: false },
       includeAssets: ['pdfs/.gitkeep'],
       manifest: {
         name: '廣論與南山律 PDF 閱讀',
@@ -48,6 +50,15 @@ export default defineConfig({
             urlPattern: ({ request }) => request.destination === 'document',
             handler: 'NetworkFirst',
             options: { cacheName: 'html-cache' },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.endsWith('lamrim-transcripts.json.gz'),
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'lamrim-transcripts',
+              networkTimeoutSeconds: 30,
+              expiration: { maxEntries: 2, maxAgeSeconds: 60 * 60 * 24 * 7 },
+            },
           },
           {
             urlPattern: ({ url }) => url.pathname.endsWith('.pdf'),

@@ -13,6 +13,7 @@ import {
 } from './books';
 import { destroyDocument, fitScale, formatStatus, loadDocument, renderPages } from './viewer';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
+import { mountLamrimTranscripts } from './transcripts/lamrim';
 
 const BOOKS: BookItem[] = [
   LAMRIM_MAIN,
@@ -170,7 +171,8 @@ function publicAssetUrl(relativePath: string): string {
 
 type HashRoute =
   | { route: 'home' }
-  | { route: 'read'; id: string; initialBody?: number; initialPdf?: number };
+  | { route: 'read'; id: string; initialBody?: number; initialPdf?: number }
+  | { route: 'transcripts-lamrim' };
 
 function parseHash(): HashRoute {
   const h = window.location.hash.replace(/^#\/?/, '');
@@ -185,6 +187,10 @@ function parseHash(): HashRoute {
     bodyRaw != null && bodyRaw !== '' ? Number.parseInt(bodyRaw, 10) : undefined;
   const initialPdf =
     pdfRaw != null && pdfRaw !== '' ? Number.parseInt(pdfRaw, 10) : undefined;
+  const parts = pathPart.split('/').filter(Boolean);
+  if (parts[0] === 'transcripts' && parts[1] === 'lamrim') {
+    return { route: 'transcripts-lamrim' };
+  }
   const [a, id] = pathPart.split('/');
   if (a === 'read' && id && byId.has(id)) {
     return {
@@ -222,11 +228,25 @@ function stripHashQuery(id: string): void {
 function render(): void {
   const r = parseHash();
   if (r.route === 'home') {
+    transcriptsCleanup?.();
+    transcriptsCleanup = null;
     viewerCleanup?.();
     viewerCleanup = null;
     destroyDocument();
     renderHome();
+  } else if (r.route === 'transcripts-lamrim') {
+    transcriptsCleanup?.();
+    transcriptsCleanup = null;
+    viewerCleanup?.();
+    viewerCleanup = null;
+    destroyDocument();
+    app.innerHTML = '';
+    void mountLamrimTranscripts(app, { onBack: navigateHome }).then((fn) => {
+      transcriptsCleanup = fn;
+    });
   } else {
+    transcriptsCleanup?.();
+    transcriptsCleanup = null;
     const book = byId.get(r.id);
     if (!book) {
       navigateHome();
@@ -398,7 +418,8 @@ function renderHome(): void {
   app.innerHTML = `
     <div class="home">
       <div class="home-header">
-        <h1>廣論與南山律 PDF 閱讀</h1>
+        <h1>法音書房</h1>
+        <a class="home-transcripts-link" href="#/transcripts/lamrim" aria-label="開啟手抄查詢">手抄查詢</a>
         <div class="home-toolbar" role="group" aria-label="首頁顯示方式">
           <button type="button" class="home-mode-btn${listOn ? ' is-active' : ''}" id="btn-mode-list" aria-label="條列顯示" title="條列">${iconList}</button>
           <button type="button" class="home-mode-btn${!listOn ? ' is-active' : ''}" id="btn-mode-cards" aria-label="圖片顯示" title="圖片">${iconGallery}</button>
@@ -410,6 +431,8 @@ function renderHome(): void {
 
   bindHomeInteractions(app);
 }
+
+let transcriptsCleanup: (() => void) | null = null;
 
 let viewerCleanup: (() => void) | null = null;
 
