@@ -316,11 +316,20 @@ select {
 
 .zoom-row-inner {
   width: 100%;
-  max-width: 22rem;
+  max-width: 26rem;
   margin-left: auto;
   margin-right: auto;
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
   justify-content: center;
+  gap: 0.45rem 0.6rem;
+}
+
+#btn-zoom-fit {
+  flex-shrink: 0;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.8rem;
 }
 
 .viewer-toolbar__row--zoom .zoom-label {
@@ -334,6 +343,43 @@ select {
   justify-content: center;
   align-items: center;
   gap: 0.5rem;
+}
+
+.viewer-nav-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.viewer-nav-actions #btn-next {
+  order: 1;
+}
+
+.viewer-nav-actions #btn-prev {
+  order: 2;
+}
+
+.viewer-nav-actions .viewer-turn-label {
+  order: 3;
+}
+
+.viewer-nav-actions.viewer-nav-actions--right-next #btn-next {
+  order: 2;
+}
+
+.viewer-nav-actions.viewer-nav-actions--right-next #btn-prev {
+  order: 1;
+}
+
+.viewer-turn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .viewer-toolbar .grow {

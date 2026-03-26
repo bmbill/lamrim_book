@@ -84,6 +84,62 @@ function resetViewportZoomAfterKeyboard(): void {
 }
 
 const LS_HOME_DISPLAY = 'lamrim-home-display';
+/** true：畫面左側／向左滑為下一頁（左開預設）；false：右側／向右滑為下一頁 */
+const LS_READER_NEXT_ON_LEFT = 'lamrim-reader-next-on-left';
+
+const LS_READER_PROGRESS = 'lamrim-reader-progress-v1';
+const LS_READER_LAST_BOOK = 'lamrim-reader-last-book';
+
+type StoredReaderProgress = {
+  pdfPage: number;
+  spread: boolean;
+  gotoMode: 'body' | 'pdf';
+  /** true：左／向左滑為下一頁；false：右／向右滑為下一頁 */
+  nextOnLeft?: boolean;
+};
+
+type ReaderProgressMap = Record<string, StoredReaderProgress>;
+
+function readProgressMap(): ReaderProgressMap {
+  try {
+    const raw = localStorage.getItem(LS_READER_PROGRESS);
+    if (!raw) return {};
+    const o = JSON.parse(raw) as unknown;
+    if (o == null || typeof o !== 'object' || Array.isArray(o)) return {};
+    return o as ReaderProgressMap;
+  } catch {
+    return {};
+  }
+}
+
+function readStoredProgress(bookId: string): StoredReaderProgress | null {
+  const m = readProgressMap();
+  const p = m[bookId];
+  if (!p || typeof p.pdfPage !== 'number' || !Number.isFinite(p.pdfPage)) return null;
+  const mode = p.gotoMode === 'pdf' ? 'pdf' : 'body';
+  return {
+    pdfPage: Math.max(1, Math.floor(p.pdfPage)),
+    spread: !!p.spread,
+    gotoMode: mode,
+    nextOnLeft: typeof p.nextOnLeft === 'boolean' ? p.nextOnLeft : undefined,
+  };
+}
+
+function writeStoredProgress(bookId: string, p: StoredReaderProgress): void {
+  try {
+    const m = readProgressMap();
+    m[bookId] = {
+      pdfPage: p.pdfPage,
+      spread: p.spread,
+      gotoMode: p.gotoMode,
+      nextOnLeft: p.nextOnLeft,
+    };
+    localStorage.setItem(LS_READER_PROGRESS, JSON.stringify(m));
+    localStorage.setItem(LS_READER_LAST_BOOK, bookId);
+  } catch {
+    /* ignore */
+  }
+}
 type HomeDisplayMode = 'list' | 'cards';
 type HomeCardFocus = 'none' | 'lamrim' | 'lay';
 
@@ -372,7 +428,6 @@ function renderViewer(
         </button>
         <div class="loading" id="loading">載入中…</div>
         <div class="viewer-stage" id="stage"></div>
-        <!-- 固定左開：左＝下一頁、右＝上一頁 -->
         <button type="button" class="zone zone-left" id="zone-left" aria-label="下一頁"></button>
         <button type="button" class="zone zone-right" id="zone-right" aria-label="上一頁"></button>
       </div>
@@ -401,11 +456,20 @@ function renderViewer(
               />
               <span id="zoom-pct" class="zoom-pct" aria-hidden="true">100%</span>
             </label>
+            <button type="button" id="btn-zoom-fit" aria-label="重設為目前頁最適大小（100% 滿版）">
+              滿版
+            </button>
           </div>
         </div>
         <div class="viewer-toolbar__row viewer-toolbar__row--nav">
-          <button type="button" id="btn-next">下一頁</button>
-          <button type="button" id="btn-prev">上一頁</button>
+          <div class="viewer-nav-actions" id="nav-actions" role="group" aria-label="換頁與方向">
+            <button type="button" id="btn-next">下一頁</button>
+            <button type="button" id="btn-prev">上一頁</button>
+            <label class="viewer-turn-label">
+              <input type="checkbox" id="chk-turn-right" aria-label="改為右側下一頁、向右滑下一頁" />
+              右側下一頁
+            </label>
+          </div>
         </div>
         <div class="goto-panel" id="goto-panel">
           <label><input type="radio" name="goto-mode" value="body" checked /> 正文頁</label>
@@ -432,6 +496,9 @@ function renderViewer(
   const zoneRight = app.querySelector<HTMLButtonElement>('#zone-right')!;
   const zoomSlider = app.querySelector<HTMLInputElement>('#zoom-slider')!;
   const zoomPct = app.querySelector<HTMLSpanElement>('#zoom-pct')!;
+  const btnZoomFit = app.querySelector<HTMLButtonElement>('#btn-zoom-fit')!;
+  const navActionsEl = app.querySelector<HTMLDivElement>('#nav-actions')!;
+  const chkTurnRight = app.querySelector<HTMLInputElement>('#chk-turn-right')!;
   const viewerRoot = app.querySelector<HTMLDivElement>('.viewer')!;
   const btnFullscreen = app.querySelector<HTMLButtonElement>('#btn-fullscreen')!;
   const btnExitImmersive = app.querySelector<HTMLButtonElement>('#btn-exit-immersive')!;
@@ -456,6 +523,34 @@ function renderViewer(
    * 換頁後即使滑桿仍 100% 畫面也會忽大忽小；維持 max(sticky, rawFit) 可讓滿版感一致（較大頁可捲動）。
    */
   let stickyContainScale: number | null = null;
+
+  function readNextOnLeftPref(): boolean {
+    try {
+      const v = localStorage.getItem(LS_READER_NEXT_ON_LEFT);
+      if (v === '0' || v === 'false') return false;
+      return true;
+    } catch {
+      return true;
+    }
+  }
+  let nextOnLeft = readNextOnLeftPref();
+
+  function persistNextOnLeft(v: boolean): void {
+    try {
+      localStorage.setItem(LS_READER_NEXT_ON_LEFT, v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function syncTurnChrome(): void {
+    chkTurnRight.checked = !nextOnLeft;
+    navActionsEl.classList.toggle('viewer-nav-actions--right-next', !nextOnLeft);
+    zoneLeft.setAttribute('aria-label', nextOnLeft ? '下一頁' : '上一頁');
+    zoneRight.setAttribute('aria-label', nextOnLeft ? '上一頁' : '下一頁');
+  }
+
+  syncTurnChrome();
 
   const canvases: HTMLCanvasElement[] = [document.createElement('canvas'), document.createElement('canvas')];
 
@@ -543,14 +638,15 @@ function renderViewer(
       currentPage = clampPage(currentPage + delta);
     }
     void updateScaleAndRender();
+    persistReadingProgress();
   }
 
   function onZoneLeftClick(): void {
-    step(1);
+    step(nextOnLeft ? 1 : -1);
   }
 
   function onZoneRightClick(): void {
-    step(-1);
+    step(nextOnLeft ? -1 : 1);
   }
 
   function applyGoto(): void {
@@ -570,7 +666,32 @@ function renderViewer(
     gotoInput.blur();
     resetViewportZoomAfterKeyboard();
     void updateScaleAndRender();
+    persistReadingProgress();
   }
+
+  function persistReadingProgress(): void {
+    if (cancelled || !doc) return;
+    const checked = app.querySelector<HTMLInputElement>('input[name="goto-mode"]:checked');
+    const mode = checked?.value === 'pdf' ? 'pdf' : 'body';
+    writeStoredProgress(book.id, {
+      pdfPage: currentPage,
+      spread,
+      gotoMode: mode,
+      nextOnLeft,
+    });
+    persistNextOnLeft(nextOnLeft);
+  }
+
+  function onReaderVisibilityHidden(): void {
+    if (document.visibilityState === 'hidden') persistReadingProgress();
+  }
+
+  function onReaderPageHide(): void {
+    persistReadingProgress();
+  }
+
+  document.addEventListener('visibilitychange', onReaderVisibilityHidden);
+  window.addEventListener('pagehide', onReaderPageHide);
 
   const ro = new ResizeObserver(() => {
     invalidateStickyContainScale();
@@ -697,6 +818,8 @@ function renderViewer(
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchStartZoomMul = 1;
+  /** 單指水平滑動換頁（與 nextOnLeft 一致）；雙指時會清除 */
+  let swipeTrack: { x: number; y: number; t: number; id: number } | null = null;
 
   function touchDistance(touches: TouchList): number {
     if (touches.length < 2) return 0;
@@ -714,10 +837,14 @@ function renderViewer(
   }
 
   function onTouchStart(e: TouchEvent): void {
-    if (e.touches.length === 2) {
+    if (e.touches.length >= 2) {
+      swipeTrack = null;
       pinchActive = true;
       pinchStartDist = Math.max(touchDistance(e.touches), 8);
       pinchStartZoomMul = zoomMul;
+    } else if (e.touches.length === 1) {
+      const t = e.touches[0]!;
+      swipeTrack = { x: t.clientX, y: t.clientY, t: Date.now(), id: t.identifier };
     }
   }
 
@@ -740,6 +867,31 @@ function renderViewer(
   }
 
   function onTouchEnd(e: TouchEvent): void {
+    if (swipeTrack) {
+      let lifted: Touch | undefined;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const c = e.changedTouches[i]!;
+        if (c.identifier === swipeTrack.id) {
+          lifted = c;
+          break;
+        }
+      }
+      if (lifted) {
+        const st = swipeTrack;
+        swipeTrack = null;
+        const dt = Date.now() - st.t;
+        const dx = lifted.clientX - st.x;
+        const dy = lifted.clientY - st.y;
+        const horiz = Math.abs(dx) >= 52 && Math.abs(dx) >= Math.abs(dy) * 1.2;
+        const speed = Math.abs(dx) / Math.max(dt, 16);
+        /* 需偏快或滑距夠長，避免放大後慢速橫向捲動誤觸換頁 */
+        const flick = horiz && dt >= 40 && dt < 720 && !pinchActive && (speed >= 0.28 || Math.abs(dx) >= 96);
+        if (flick) {
+          if (dx < 0) step(nextOnLeft ? 1 : -1);
+          else step(nextOnLeft ? -1 : 1);
+        }
+      }
+    }
     if (e.touches.length < 2) pinchActive = false;
   }
 
@@ -748,9 +900,15 @@ function renderViewer(
     ev.preventDefault();
   };
 
+  function onTouchCancel(): void {
+    swipeTrack = null;
+    pinchActive = false;
+  }
+
   stageWrap.addEventListener('touchstart', onTouchStart, { passive: true });
   stageWrap.addEventListener('touchmove', onTouchMove, { passive: false });
   stageWrap.addEventListener('touchend', onTouchEnd, { passive: true });
+  stageWrap.addEventListener('touchcancel', onTouchCancel, { passive: true });
   stageWrap.addEventListener('gesturestart', onGesturePrevent, { passive: false });
   stageWrap.addEventListener('gesturechange', onGesturePrevent, { passive: false });
   stageWrap.addEventListener('gestureend', onGesturePrevent, { passive: false });
@@ -777,6 +935,7 @@ function renderViewer(
     currentPage = clampPage(currentPage);
     invalidateStickyContainScale();
     void updateScaleAndRender();
+    persistReadingProgress();
   });
   function applyZoomFromSlider(): void {
     const raw = Number.parseInt(zoomSlider.value, 10);
@@ -792,6 +951,18 @@ function renderViewer(
   }
 
   zoomSlider.addEventListener('input', onZoomSliderInput);
+  btnZoomFit.addEventListener('click', () => {
+    zoomSlider.value = '100';
+    applyZoomFromSlider();
+    invalidateStickyContainScale();
+    void updateScaleAndRender();
+    scheduleStickyRefitAfterLayoutSettle();
+  });
+  chkTurnRight.addEventListener('change', () => {
+    nextOnLeft = !chkTurnRight.checked;
+    persistNextOnLeft(nextOnLeft);
+    syncTurnChrome();
+  });
   btnFullscreen.addEventListener('click', () => {
     void (async () => {
       autoChromeApplied = false;
@@ -811,8 +982,14 @@ function renderViewer(
   gotoInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') applyGoto();
   });
+  app.querySelectorAll<HTMLInputElement>('input[name="goto-mode"]').forEach((radio) => {
+    radio.addEventListener('change', () => persistReadingProgress());
+  });
 
   viewerCleanup = () => {
+    persistReadingProgress();
+    document.removeEventListener('visibilitychange', onReaderVisibilityHidden);
+    window.removeEventListener('pagehide', onReaderPageHide);
     cancelled = true;
     autoChromeApplied = false;
     if (stickyRefitSettleTimer !== 0) {
@@ -842,6 +1019,7 @@ function renderViewer(
     stageWrap.removeEventListener('touchstart', onTouchStart);
     stageWrap.removeEventListener('touchmove', onTouchMove);
     stageWrap.removeEventListener('touchend', onTouchEnd);
+    stageWrap.removeEventListener('touchcancel', onTouchCancel);
     stageWrap.removeEventListener('gesturestart', onGesturePrevent);
     stageWrap.removeEventListener('gesturechange', onGesturePrevent);
     stageWrap.removeEventListener('gestureend', onGesturePrevent);
@@ -861,6 +1039,7 @@ function renderViewer(
       applyZoomFromSlider();
       const gotoBodyRadio = app.querySelector<HTMLInputElement>('input[name="goto-mode"][value="body"]')!;
       const gotoPdfRadio = app.querySelector<HTMLInputElement>('input[name="goto-mode"][value="pdf"]')!;
+      const saved = readStoredProgress(book.id);
       if (initial?.initialPdf != null && Number.isFinite(initial.initialPdf)) {
         currentPage = clampPage(Math.floor(initial.initialPdf!));
         gotoPdfRadio.checked = true;
@@ -872,10 +1051,27 @@ function renderViewer(
         gotoBodyRadio.checked = true;
         gotoPdfRadio.checked = false;
         gotoInput.value = String(bRequested);
+      } else if (saved) {
+        currentPage = clampPage(saved.pdfPage);
+        spread = saved.spread;
+        chkSpread.checked = spread;
+        if (saved.gotoMode === 'pdf') {
+          gotoPdfRadio.checked = true;
+          gotoBodyRadio.checked = false;
+          gotoInput.value = String(currentPage);
+        } else {
+          gotoBodyRadio.checked = true;
+          gotoPdfRadio.checked = false;
+          gotoInput.value = String(pdfPageToBodyPage(book, currentPage));
+        }
       } else {
         gotoBodyRadio.checked = true;
         gotoPdfRadio.checked = false;
         gotoInput.value = String(pdfPageToBodyPage(book, currentPage));
+      }
+      if (saved?.nextOnLeft != null) {
+        nextOnLeft = saved.nextOnLeft;
+        syncTurnChrome();
       }
       stripHashQuery(book.id);
       loadingEl.classList.add('hidden');
