@@ -84,7 +84,7 @@ function resetViewportZoomAfterKeyboard(): void {
 }
 
 const LS_HOME_DISPLAY = 'lamrim-home-display';
-/** true：畫面左側／向左滑為下一頁（左開預設）；false：右側／向右滑為下一頁 */
+/** true：左側點擊為下一頁（左開預設）；滑動為向右下一頁、向左上一頁。false：右側點擊下一頁；滑動為向左下一頁、向右上一頁 */
 const LS_READER_NEXT_ON_LEFT = 'lamrim-reader-next-on-left';
 
 const LS_READER_PROGRESS = 'lamrim-reader-progress-v1';
@@ -94,7 +94,7 @@ type StoredReaderProgress = {
   pdfPage: number;
   spread: boolean;
   gotoMode: 'body' | 'pdf';
-  /** true：左／向左滑為下一頁；false：右／向右滑為下一頁 */
+  /** true：左側點擊下一頁；滑動右向下一頁、左向上一頁。false：右側點擊下一頁；滑動左向下一頁、右向上一頁 */
   nextOnLeft?: boolean;
 };
 
@@ -466,7 +466,7 @@ function renderViewer(
             <button type="button" id="btn-next">下一頁</button>
             <button type="button" id="btn-prev">上一頁</button>
             <label class="viewer-turn-label">
-              <input type="checkbox" id="chk-turn-right" aria-label="改為右側下一頁、向右滑下一頁" />
+              <input type="checkbox" id="chk-turn-right" aria-label="改為右側點擊下一頁；滑動為向左下一頁、向右上一頁" />
               右側下一頁
             </label>
           </div>
@@ -818,7 +818,7 @@ function renderViewer(
   let pinchActive = false;
   let pinchStartDist = 0;
   let pinchStartZoomMul = 1;
-  /** 單指水平滑動換頁（與 nextOnLeft 一致）；雙指時會清除 */
+  /** 單指水平滑動換頁（左右滑向與點擊區對調）；雙指時會清除 */
   let swipeTrack: { x: number; y: number; t: number; id: number } | null = null;
 
   function touchDistance(touches: TouchList): number {
@@ -887,8 +887,8 @@ function renderViewer(
         /* 需偏快或滑距夠長，避免放大後慢速橫向捲動誤觸換頁 */
         const flick = horiz && dt >= 40 && dt < 720 && !pinchActive && (speed >= 0.28 || Math.abs(dx) >= 96);
         if (flick) {
-          if (dx < 0) step(nextOnLeft ? 1 : -1);
-          else step(nextOnLeft ? -1 : 1);
+          if (dx < 0) step(nextOnLeft ? -1 : 1);
+          else step(nextOnLeft ? 1 : -1);
         }
       }
     }
