@@ -6,6 +6,8 @@ const base = process.env.VITE_BASE ?? '/';
 
 export default defineConfig({
   base,
+  /** 允許同網段手機直連 dev server（以 IP 存取）。僅綁到 0.0.0.0；防火牆設定仍由使用者控制。 */
+  server: { host: true },
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
@@ -52,12 +54,12 @@ export default defineConfig({
             options: { cacheName: 'html-cache' },
           },
           {
-            urlPattern: ({ url }) => url.pathname.endsWith('lamrim-transcripts.json.gz'),
+            urlPattern: ({ url }) => /\/data\/[a-z-]+\.json\.gz$/.test(url.pathname),
             handler: 'NetworkFirst',
             options: {
               cacheName: 'lamrim-transcripts',
               networkTimeoutSeconds: 30,
-              expiration: { maxEntries: 2, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              expiration: { maxEntries: 6, maxAgeSeconds: 60 * 60 * 24 * 7 },
             },
           },
           {

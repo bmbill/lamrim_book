@@ -61,9 +61,11 @@ select {
 
 .home {
   padding: 1rem;
-  padding-bottom: calc(1rem + var(--safe-bottom));
+  /* 為底部固定功能列預留空間：約 4.75rem 列高 + 安全區 */
+  padding-bottom: calc(4.75rem + var(--safe-bottom));
   max-width: 42rem;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .home-header {
@@ -569,25 +571,67 @@ button.zone:focus-visible {
   display: none !important;
 }
 
-.home-transcripts-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: auto;
-  align-self: center;
-  padding: 0.4rem 0.75rem;
-  border-radius: 999px;
-  border: 1px solid var(--accent);
-  background: rgba(12, 74, 110, 0.35);
-  font-size: 0.82rem;
-  color: var(--accent);
-  text-decoration: none;
-  white-space: nowrap;
+/**
+ * 底部固定功能列（類似 LINE／多數 APP 的 tab bar）：
+ * 常駐於首頁下方，目前僅「手抄查詢」一項，
+ * 之後新增功能時會以等寬並列，最多排滿整條。
+ */
+.home-bottom-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 0.4rem 0.5rem;
+  padding-bottom: calc(0.4rem + var(--safe-bottom));
+  background: rgba(15, 23, 42, 0.95);
+  border-top: 1px solid #1f2937;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-.home-transcripts-link:hover {
-  background: rgba(12, 74, 110, 0.6);
+.home-feature {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 6rem;
+  padding: 0.4rem 0.25rem;
+  border-radius: 8px;
+  color: var(--muted);
   text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.home-feature:hover,
+.home-feature:active {
+  background: rgba(14, 116, 144, 0.18);
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.home-feature:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.home-feature-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: block;
+}
+
+.home-feature-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
 .transcripts {
@@ -694,6 +738,19 @@ button.zone:focus-visible {
   gap: 0.35rem;
 }
 
+.transcripts-group-header {
+  margin: 0.75rem 0 0.3rem;
+  padding: 0.2rem 0.4rem;
+  border-left: 3px solid var(--accent);
+  font-size: 0.8rem;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.transcripts-group-header.is-fengshan {
+  border-left-color: #f59e0b;
+}
+
 .transcripts-hit {
   text-align: left;
   width: 100%;
@@ -707,6 +764,162 @@ button.zone:focus-visible {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.2rem;
+}
+
+.transcripts-hit.is-fengshan {
+  border-left: 3px solid #f59e0b;
+}
+
+.transcripts-source-badge {
+  display: inline-block;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  margin-right: 0.25rem;
+}
+
+.transcripts-source-badge.is-nanputuo {
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+}
+
+.transcripts-source-badge.is-fengshan {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.transcripts-source-toggle {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin-right: 0.25rem;
+}
+
+.transcripts-no-quote {
+  color: var(--muted);
+  font-style: normal;
+  font-size: 0.85rem;
+}
+
+/* ===== 科判瀏覽頁 ===== */
+
+.kepan-body {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, 2fr);
+  align-items: start;
+}
+
+@media (max-width: 720px) {
+  .kepan-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.kepan-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.kepan-group {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.kepan-group-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  user-select: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.kepan-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.kepan-group-summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 0.72rem;
+  margin-right: 0.35rem;
+  transition: transform 0.15s ease;
+  color: var(--muted);
+}
+
+.kepan-group[open] > .kepan-group-summary::before {
+  transform: rotate(90deg);
+}
+
+.kepan-counts {
+  font-size: 0.72rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.kepan-section-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0.4rem 0;
+}
+
+.kepan-section-list li {
+  margin: 0;
+}
+
+.kepan-section-btn {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem 0.4rem 1.3rem;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: left;
+  border-left: 2px solid transparent;
+}
+
+.kepan-section-btn:hover {
+  background: rgba(14, 116, 144, 0.12);
+}
+
+.kepan-section-btn.is-active {
+  background: rgba(14, 116, 144, 0.22);
+  border-left-color: var(--accent);
+  color: var(--accent);
+}
+
+.kepan-section-counts {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.kepan-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.kepan-section-header {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--text);
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #334155;
 }
 
 .transcripts-hit-meta {
@@ -805,10 +1018,67 @@ button.zone:focus-visible {
   align-items: center;
   gap: 0.5rem;
   margin-bottom: 0.6rem;
+  flex-wrap: wrap;
 }
 
-.transcripts-player-controls input[type='range'] {
+.transcripts-player-controls #tr-audio-seek {
   flex: 1;
   min-width: 8rem;
+}
+
+.transcripts-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid #334155;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.transcripts-icon-btn:hover {
+  background: #1e293b;
+}
+
+.transcripts-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.transcripts-icon-btn.is-active,
+.transcripts-icon-btn[aria-pressed='true'] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0f172a;
+}
+
+.transcripts-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  display: block;
+}
+
+.transcripts-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.transcripts-volume-input {
+  width: 5rem;
+  flex: 0 0 auto;
+  min-width: 4rem;
+}
+
+/* Mute button active state should NOT use the accent fill (it is a toggle that just swaps icon) */
+.transcripts-icon-btn#tr-audio-mute[aria-pressed='true'] {
+  background: var(--surface);
+  border-color: #334155;
+  color: var(--muted);
 }
 

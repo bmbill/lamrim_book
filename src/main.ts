@@ -14,6 +14,8 @@ import {
 import { destroyDocument, fitScale, formatStatus, loadDocument, renderPages } from './viewer';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { mountLamrimTranscripts } from './transcripts/lamrim';
+import { mountKepan } from './transcripts/kepan';
+import type { SourceKey } from './transcripts/lamrimTypes';
 
 const BOOKS: BookItem[] = [
   LAMRIM_MAIN,
@@ -172,7 +174,12 @@ function publicAssetUrl(relativePath: string): string {
 type HashRoute =
   | { route: 'home' }
   | { route: 'read'; id: string; initialBody?: number; initialPdf?: number }
-  | { route: 'transcripts-lamrim' };
+  | {
+      route: 'transcripts-lamrim';
+      openSeg?: { source: SourceKey; id: number };
+      from?: 'kepan';
+    }
+  | { route: 'transcripts-kepan' };
 
 function parseHash(): HashRoute {
   const h = window.location.hash.replace(/^#\/?/, '');
@@ -188,8 +195,19 @@ function parseHash(): HashRoute {
   const initialPdf =
     pdfRaw != null && pdfRaw !== '' ? Number.parseInt(pdfRaw, 10) : undefined;
   const parts = pathPart.split('/').filter(Boolean);
+  if (parts[0] === 'transcripts' && parts[1] === 'kepan') {
+    return { route: 'transcripts-kepan' };
+  }
   if (parts[0] === 'transcripts' && parts[1] === 'lamrim') {
-    return { route: 'transcripts-lamrim' };
+    const segRaw = params.get('seg');
+    let openSeg: { source: SourceKey; id: number } | undefined;
+    if (segRaw) {
+      const m = segRaw.match(/^(nanputuo|fengshan):(\d+)$/);
+      if (m) openSeg = { source: m[1] as SourceKey, id: Number.parseInt(m[2], 10) };
+    }
+    const fromRaw = params.get('from');
+    const from = fromRaw === 'kepan' ? 'kepan' : undefined;
+    return { route: 'transcripts-lamrim', openSeg, from };
   }
   const [a, id] = pathPart.split('/');
   if (a === 'read' && id && byId.has(id)) {
@@ -241,7 +259,35 @@ function render(): void {
     viewerCleanup = null;
     destroyDocument();
     app.innerHTML = '';
-    void mountLamrimTranscripts(app, { onBack: navigateHome }).then((fn) => {
+    const fromKepan = r.from === 'kepan';
+    // 清掉 seg/from 參數避免歷史紀錄中殘留，下次進頁不自動開啟
+    if (window.location.hash.includes('?')) {
+      history.replaceState(null, '', `${window.location.pathname}${window.location.search}#/transcripts/lamrim`);
+    }
+    const onBackLamrim = fromKepan
+      ? () => {
+          window.location.hash = '#/transcripts/kepan';
+        }
+      : navigateHome;
+    void mountLamrimTranscripts(app, {
+      onBack: onBackLamrim,
+      openSeg: r.openSeg,
+    }).then((fn) => {
+      transcriptsCleanup = fn;
+    });
+  } else if (r.route === 'transcripts-kepan') {
+    transcriptsCleanup?.();
+    transcriptsCleanup = null;
+    viewerCleanup?.();
+    viewerCleanup = null;
+    destroyDocument();
+    app.innerHTML = '';
+    void mountKepan(app, {
+      onBack: navigateHome,
+      onOpenSeg: ({ source, id }) => {
+        window.location.hash = `#/transcripts/lamrim?seg=${source}:${id}&from=kepan`;
+      },
+    }).then((fn) => {
       transcriptsCleanup = fn;
     });
   } else {
@@ -414,12 +460,13 @@ function renderHome(): void {
 
   const iconList = `<svg class="home-mode-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><circle cx="4" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="4" cy="18" r="1" fill="currentColor" stroke="none"/></svg>`;
   const iconGallery = `<svg class="home-mode-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor"/><path d="M21 15l-5-5L5 21"/></svg>`;
+  const iconTranscripts = `<svg class="home-feature-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M14 4v4h4"/><line x1="7" y1="11" x2="13" y2="11"/><line x1="7" y1="14.5" x2="12" y2="14.5"/><circle cx="16.5" cy="17.5" r="2.2"/><line x1="18.2" y1="19.2" x2="20" y2="21"/></svg>`;
+  const iconKepan = `<svg class="home-feature-icon" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h4"/><path d="M10 5h10"/><path d="M4 5v14"/><path d="M8 10h3"/><path d="M13 10h7"/><path d="M11 15h3"/><path d="M16 15h4"/></svg>`;
 
   app.innerHTML = `
     <div class="home">
       <div class="home-header">
         <h1>法音書房</h1>
-        <a class="home-transcripts-link" href="#/transcripts/lamrim" aria-label="開啟手抄查詢">手抄查詢</a>
         <div class="home-toolbar" role="group" aria-label="首頁顯示方式">
           <button type="button" class="home-mode-btn${listOn ? ' is-active' : ''}" id="btn-mode-list" aria-label="條列顯示" title="條列">${iconList}</button>
           <button type="button" class="home-mode-btn${!listOn ? ' is-active' : ''}" id="btn-mode-cards" aria-label="圖片顯示" title="圖片">${iconGallery}</button>
@@ -427,6 +474,16 @@ function renderHome(): void {
       </div>
       ${body}
     </div>
+    <nav class="home-bottom-nav" aria-label="功能列">
+      <a class="home-feature" href="#/transcripts/lamrim" aria-label="手抄查詢">
+        ${iconTranscripts}
+        <span class="home-feature-label">手抄查詢</span>
+      </a>
+      <a class="home-feature" href="#/transcripts/kepan" aria-label="廣論科判">
+        ${iconKepan}
+        <span class="home-feature-label">科判</span>
+      </a>
+    </nav>
   `;
 
   bindHomeInteractions(app);
