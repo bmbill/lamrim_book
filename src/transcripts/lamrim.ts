@@ -273,9 +273,8 @@ function sortByReadingOrderWithin(source: SourceKey, list: FlatSegment[]): FlatS
 
 function formatSegmentTimeLabel(seg: FlatSegment): string {
   const plan = audioPlanForSeg(seg);
-  if (plan.length <= 1) {
-    return seg.endSec != null ? `${formatTime(seg.startSec)} – ${formatTime(seg.endSec)}` : `${formatTime(seg.startSec)} 起`;
-  }
+  if (plan.length <= 1) return sourceOf(seg).formatTimeLabel(seg);
+  // 多支音檔（南普陀跨卷）：顯示 <卷> <MM:SS> 起 → <卷> <MM:SS>
   const first = plan[0]!;
   const last = plan[plan.length - 1]!;
   const lastEnd = last.endSec != null ? formatTime(last.endSec) : "檔尾";

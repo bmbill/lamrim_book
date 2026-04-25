@@ -315,11 +315,33 @@ function buildFlatSegments(lessons) {
       const seg = lesson.segments[i];
       // 多個 h4 共享同一時間錨點時，endSec 應指向「下一個不同 startSec」的段落
       // （而非相鄰段），否則會出現 startSec === endSec 的零長度範圍
-      let endSec = null;
+      let nextDistinct = null;
       for (let j = i + 1; j < lesson.segments.length; j++) {
         if (lesson.segments[j].startSec > seg.startSec) {
-          endSec = lesson.segments[j].startSec;
+          nextDistinct = lesson.segments[j];
           break;
+        }
+      }
+      const endSec = nextDistinct ? nextDistinct.startSec : null;
+
+      // endOriginalTape：同卷直接拿下段 originalTape 起點；跨卷／無下段則
+      // 以音檔 duration 推算（同卷上的近似結束時間）
+      let endOriginalTape = null;
+      if (seg.originalTape) {
+        if (
+          nextDistinct &&
+          nextDistinct.originalTape &&
+          nextDistinct.originalTape.volume === seg.originalTape.volume
+        ) {
+          endOriginalTape = {
+            volume: nextDistinct.originalTape.volume,
+            startSec: nextDistinct.originalTape.startSec,
+          };
+        } else if (endSec != null) {
+          endOriginalTape = {
+            volume: seg.originalTape.volume,
+            startSec: seg.originalTape.startSec + (endSec - seg.startSec),
+          };
         }
       }
 
@@ -347,6 +369,7 @@ function buildFlatSegments(lessons) {
         audioPlan: [{ pageSlug: lesson.slug, startSec: seg.startSec, endSec }],
         audioUrl: lesson.audioUrl || undefined,
         originalTape: seg.originalTape || undefined,
+        endOriginalTape: endOriginalTape || undefined,
         lessonSlug: lesson.slug,
         lessonTitle: lesson.lessonTitle,
       });

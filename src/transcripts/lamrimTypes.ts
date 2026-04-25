@@ -51,8 +51,10 @@ export type FlatSegment = {
   sourceKey?: SourceKey;
   /** 鳳山寺直接給定音檔 URL；南普陀走 AMRTF API，可留空 */
   audioUrl?: string;
-  /** 鳳山寺原卷對照 */
+  /** 鳳山寺原卷對照（段落起點） */
   originalTape?: OriginalTapeRef;
+  /** 鳳山寺原卷對照（段落終點：取下段 originalTape；跨卷時以音檔 duration 推算） */
+  endOriginalTape?: OriginalTapeRef;
   /** 鳳山寺講次 slug（與 pageSlug 相同，語義別名） */
   lessonSlug?: string;
   /** 鳳山寺講次標題（lesson 01 =「一、要旨總說」） */

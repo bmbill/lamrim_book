@@ -38,17 +38,7 @@ async function fetchGzipJson<T>(url: string): Promise<T> {
   return JSON.parse(new TextDecoder("utf-8").decode(buf)) as T;
 }
 
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function formatSegmentTimeLabel(seg: FlatSegment): string {
-  return seg.endSec != null
-    ? `${formatTime(seg.startSec)} – ${formatTime(seg.endSec)}`
-    : `${formatTime(seg.startSec)} 起`;
-}
+// 時間區間 label 由 source 設定處理（鳳山寺以原卷時間顯示、南普陀以音檔時間顯示）
 
 function sourceBadgeHtml(seg: FlatSegment): string {
   const src = sourceOf(seg);
@@ -175,19 +165,25 @@ export async function mountKepan(
         (seg.quoteText.length > 0 ? seg.quoteText : seg.explanationText).slice(0, 80) +
         ((seg.quoteText.length || seg.explanationText.length) > 80 ? "…" : "");
       return `<button type="button" class="transcripts-hit is-${src.key}" data-src="${src.key}" data-id="${seg.id}">
-        <span class="transcripts-hit-meta">${sourceBadgeHtml(seg)} ${src.tapeLabel(seg)} · ${formatSegmentTimeLabel(seg)}</span>
+        <span class="transcripts-hit-meta">${sourceBadgeHtml(seg)} ${src.tapeLabel(seg)} · ${src.formatTimeLabel(seg)}</span>
         <span class="transcripts-hit-q">${preview}</span>
       </button>`;
     };
     const parts: string[] = [];
     parts.push(`<div class="kepan-section-header">${section.name}</div>`);
-    if (bucket.np.length) {
-      parts.push(`<div class="transcripts-group-header is-nanputuo">南普陀版（${bucket.np.length} 筆）</div>`);
-      for (const s of bucket.np) parts.push(makeCard(s));
-    }
+    // 兩版皆以 <details> 包起：鳳山寺預設展開、南普陀預設摺疊，
+    // 避免使用者每次都要滑過長長的南普陀清單才看到鳳山寺版本
     if (bucket.fg.length) {
-      parts.push(`<div class="transcripts-group-header is-fengshan">鳳山寺版（${bucket.fg.length} 筆）</div>`);
+      parts.push(`<details class="kepan-source-group" open>
+        <summary class="transcripts-group-header is-fengshan">鳳山寺版（${bucket.fg.length} 筆）</summary>`);
       for (const s of bucket.fg) parts.push(makeCard(s));
+      parts.push(`</details>`);
+    }
+    if (bucket.np.length) {
+      parts.push(`<details class="kepan-source-group">
+        <summary class="transcripts-group-header is-nanputuo">南普陀版（${bucket.np.length} 筆）</summary>`);
+      for (const s of bucket.np) parts.push(makeCard(s));
+      parts.push(`</details>`);
     }
     hitsEl.innerHTML = parts.join("");
     hitsEl.querySelectorAll<HTMLButtonElement>(".transcripts-hit").forEach((btn) => {

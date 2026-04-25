@@ -13,7 +13,35 @@ export type TranscriptSourceConfig = {
   timeInputMode: "tape-ab" | "original-tape";
   /** 顯示段落所屬卷／講次 */
   tapeLabel: (seg: FlatSegment) => string;
+  /**
+   * 段落時間範圍標籤。
+   * - 南普陀：直接用音檔時間（每卷一檔，音檔時間＝卷上時間）
+   * - 鳳山寺：用 originalTape／endOriginalTape（每講次一檔但跨數卷，
+   *   音檔時間不等於原卷時間，需另外標示卷上的位置）
+   * 若 seg 沒有相應欄位（舊資料）則退化回音檔 MM:SS。
+   */
+  formatTimeLabel: (seg: FlatSegment) => string;
 };
+
+function formatMSorHMS(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "00:00";
+  const total = Math.floor(sec);
+  if (total >= 3600) {
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function audioRangeLabel(seg: FlatSegment): string {
+  return seg.endSec != null
+    ? `${formatMSorHMS(seg.startSec)} – ${formatMSorHMS(seg.endSec)}`
+    : `${formatMSorHMS(seg.startSec)} 起`;
+}
 
 export const NANPUTUO_SOURCE: TranscriptSourceConfig = {
   key: "nanputuo",
@@ -21,6 +49,7 @@ export const NANPUTUO_SOURCE: TranscriptSourceConfig = {
   dataPath: "data/lamrim-transcripts.json.gz",
   timeInputMode: "tape-ab",
   tapeLabel: (seg) => `卷 ${seg.tapeId ?? "?"}`,
+  formatTimeLabel: audioRangeLabel,
 };
 
 export const FENGSHAN_SOURCE: TranscriptSourceConfig = {
@@ -32,6 +61,17 @@ export const FENGSHAN_SOURCE: TranscriptSourceConfig = {
     const lesson = seg.lessonSlug ?? seg.pageSlug;
     const tape = seg.originalTape ? ` · 原卷 ${seg.originalTape.volume}` : "";
     return `第 ${Number(lesson)} 講${tape}`;
+  },
+  formatTimeLabel: (seg) => {
+    if (!seg.originalTape) return audioRangeLabel(seg);
+    const startStr = formatMSorHMS(seg.originalTape.startSec);
+    const end = seg.endOriginalTape;
+    if (!end) return `${startStr} 起`;
+    const endStr = formatMSorHMS(end.startSec);
+    if (end.volume !== seg.originalTape.volume) {
+      return `${startStr} – 卷${end.volume} ${endStr}`;
+    }
+    return `${startStr} – ${endStr}`;
   },
 };
 
