@@ -171,18 +171,17 @@ export async function mountKepan(
     };
     const parts: string[] = [];
     parts.push(`<div class="kepan-section-header">${section.name}</div>`);
-    // 兩版皆以 <details> 包起：鳳山寺預設展開、南普陀預設摺疊，
-    // 避免使用者每次都要滑過長長的南普陀清單才看到鳳山寺版本
-    if (bucket.fg.length) {
-      parts.push(`<details class="kepan-source-group" open>
-        <summary class="transcripts-group-header is-fengshan">鳳山寺版（${bucket.fg.length} 筆）</summary>`);
-      for (const s of bucket.fg) parts.push(makeCard(s));
-      parts.push(`</details>`);
-    }
+    // 兩版皆以 <details> 包起、預設皆摺疊；使用者點 summary 自行展開所要的版本
     if (bucket.np.length) {
       parts.push(`<details class="kepan-source-group">
         <summary class="transcripts-group-header is-nanputuo">南普陀版（${bucket.np.length} 筆）</summary>`);
       for (const s of bucket.np) parts.push(makeCard(s));
+      parts.push(`</details>`);
+    }
+    if (bucket.fg.length) {
+      parts.push(`<details class="kepan-source-group">
+        <summary class="transcripts-group-header is-fengshan">鳳山寺版（${bucket.fg.length} 筆）</summary>`);
+      for (const s of bucket.fg) parts.push(makeCard(s));
       parts.push(`</details>`);
     }
     hitsEl.innerHTML = parts.join("");
