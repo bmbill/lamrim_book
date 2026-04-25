@@ -46,7 +46,9 @@ async function loadPayloadFor(source: TranscriptSourceConfig): Promise<Transcrip
   const url = resolveDataUrl(source.dataPath);
   let res: Response;
   try {
-    res = await fetch(url, { cache: "no-store" });
+    // 不指定 cache 模式：交給 browser HTTP cache + Service Worker（StaleWhileRevalidate）
+    // 讓索引能跨頁面 reload 重用，避免 2.5MB 每次重抓；新版會在背景靜默更新
+    res = await fetch(url);
   } catch (e) {
     const hint =
       "請確認 npm run dev 已啟動且對應的 .json.gz 存在；若曾用 PWA／preview 開過本站，請開發者工具 → Application → Service Workers → Unregister 後強制重新整理。";

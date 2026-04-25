@@ -160,13 +160,13 @@ function isTimeSpan($el) {
 
 function parseTimeSpan($time) {
   const title = $time.attr("title") || "";
-  const startSec = parseMMSS(title);
+  const startSec = parseClock(title);
   const oText = $time.find("span.o_time").first().text().trim();
   let originalTape = null;
-  const m = oText.match(/第\s*(\d+)\s*卷\s*(\d{1,3}:\d{2})/);
+  const m = oText.match(/第\s*(\d+)\s*卷\s*(\d+:\d{2}(?::\d{2})?)/);
   if (m) {
     const vol = Number(m[1]);
-    const sec = parseMMSS(m[2]);
+    const sec = parseClock(m[2]);
     if (Number.isFinite(vol) && sec != null) originalTape = { volume: vol, startSec: sec };
   }
   return { startSec, originalTape };
@@ -313,8 +313,15 @@ function buildFlatSegments(lessons) {
     const pageEntries = [];
     for (let i = 0; i < lesson.segments.length; i++) {
       const seg = lesson.segments[i];
-      const next = lesson.segments[i + 1] || null;
-      const endSec = next ? next.startSec : null;
+      // 多個 h4 共享同一時間錨點時，endSec 應指向「下一個不同 startSec」的段落
+      // （而非相鄰段），否則會出現 startSec === endSec 的零長度範圍
+      let endSec = null;
+      for (let j = i + 1; j < lesson.segments.length; j++) {
+        if (lesson.segments[j].startSec > seg.startSec) {
+          endSec = lesson.segments[j].startSec;
+          break;
+        }
+      }
 
       const quoteHtml = seg.quoteParts.map((p) => p.html).join("");
       const quoteText = normalizeForSearch(seg.quoteParts.map((p) => p.text).join(""));

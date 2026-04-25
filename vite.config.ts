@@ -54,12 +54,13 @@ export default defineConfig({
             options: { cacheName: 'html-cache' },
           },
           {
+            // 索引檔大（~2.5–7MB）、每次 reload 都用：先回快取再背景更新，
+            // 第二次以後幾乎是即時開啟；新版本 build 後下一次 reload 自動換新
             urlPattern: ({ url }) => /\/data\/[a-z-]+\.json\.gz$/.test(url.pathname),
-            handler: 'NetworkFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'lamrim-transcripts',
-              networkTimeoutSeconds: 30,
-              expiration: { maxEntries: 6, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              expiration: { maxEntries: 6, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
           {
