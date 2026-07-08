@@ -237,12 +237,6 @@ function navigateRead(id: string, opts?: { body?: number; pdf?: number }): void 
   render();
 }
 
-function stripHashQuery(id: string): void {
-  if (!window.location.hash.includes('?')) return;
-  const clean = `#/read/${id}`;
-  history.replaceState(null, '', `${window.location.pathname}${window.location.search}${clean}`);
-}
-
 function render(): void {
   const r = parseHash();
   if (r.route === 'home') {
@@ -749,6 +743,15 @@ function renderViewer(
     persistReadingProgress();
   }
 
+  /** 把當前頁碼寫回網址（replaceState 不新增歷史紀錄），讓網址隨時可複製分享並直接跳到該頁 */
+  function syncUrlToCurrentPage(mode: 'body' | 'pdf'): void {
+    if (cancelled || !doc) return;
+    const pageParam =
+      mode === 'pdf' ? `pdf=${currentPage}` : `body=${pdfPageToBodyPage(book, currentPage)}`;
+    const clean = `#/read/${book.id}?${pageParam}`;
+    history.replaceState(null, '', `${window.location.pathname}${window.location.search}${clean}`);
+  }
+
   function persistReadingProgress(): void {
     if (cancelled || !doc) return;
     const checked = app.querySelector<HTMLInputElement>('input[name="goto-mode"]:checked');
@@ -760,6 +763,7 @@ function renderViewer(
       nextOnLeft,
     });
     persistNextOnLeft(nextOnLeft);
+    syncUrlToCurrentPage(mode);
   }
 
   function onReaderVisibilityHidden(): void {
@@ -1153,7 +1157,7 @@ function renderViewer(
         nextOnLeft = saved.nextOnLeft;
         syncTurnChrome();
       }
-      stripHashQuery(book.id);
+      syncUrlToCurrentPage(gotoPdfRadio.checked ? 'pdf' : 'body');
       loadingEl.classList.add('hidden');
       await updateScaleAndRender();
       scheduleAutoLandscapeChrome();
