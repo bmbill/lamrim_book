@@ -454,8 +454,38 @@ select {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
 
-.viewer--immersive .viewer-toolbar {
+.viewer--immersive .viewer-toolbar,
+.viewer--toolbar-auto-hidden .viewer-toolbar {
   display: none;
+}
+
+/* 工具列閒置收起後的提示：點它或把滑鼠移到畫面底部即可叫回 */
+.viewer-reveal-toolbar {
+  position: absolute;
+  z-index: 6;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  background: rgba(30, 41, 59, 0.82);
+  color: var(--text);
+  border: 1px solid #334155;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+  touch-action: manipulation;
+}
+
+.viewer-reveal-toolbar:hover,
+.viewer-reveal-toolbar:focus-visible {
+  opacity: 1;
+}
+
+.viewer-reveal-toolbar:active {
+  transform: translateX(-50%) scale(0.96);
 }
 
 .viewer-exit-immersive {

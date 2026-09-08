@@ -90,6 +90,14 @@ const LS_HOME_DISPLAY = 'lamrim-home-display';
 /** true：左側點擊為下一頁（左開預設）；滑動為向右下一頁、向左上一頁。false：右側點擊下一頁；滑動為向左下一頁、向右上一頁 */
 const LS_READER_NEXT_ON_LEFT = 'lamrim-reader-next-on-left';
 
+/** true：閒置數秒後自動收起下方工具列，點畫面中央或底部提示可再叫出 */
+const LS_READER_AUTO_HIDE = 'lamrim-reader-autohide';
+
+/** 閒置多久後收起工具列 */
+const READER_AUTO_HIDE_IDLE_MS = 3500;
+/** 滑鼠移入畫面底部這個高度內即叫回工具列（精準指標裝置） */
+const READER_REVEAL_EDGE_PX = 88;
+
 const LS_READER_PROGRESS = 'lamrim-reader-progress-v1';
 const LS_READER_LAST_BOOK = 'lamrim-reader-last-book';
 
@@ -500,6 +508,9 @@ function renderViewer(
         <button type="button" class="viewer-exit-immersive" id="btn-exit-immersive" hidden aria-label="離開全螢幕（顯示工具列）">
           ✕
         </button>
+        <button type="button" class="viewer-reveal-toolbar" id="btn-reveal-toolbar" hidden aria-label="顯示工具列">
+          ▴ 工具列
+        </button>
         <div class="loading" id="loading">載入中…</div>
         <div class="viewer-stage" id="stage"></div>
         <button type="button" class="zone zone-left" id="zone-left" aria-label="下一頁"></button>
@@ -510,6 +521,7 @@ function renderViewer(
           <button type="button" id="btn-back">返回</button>
           <span class="grow" id="title">${book.title}</span>
           <label><input type="checkbox" id="chk-spread" /> 雙頁</label>
+          <label><input type="checkbox" id="chk-autohide" aria-label="閒置時自動收起下方工具列" /> 自動隱藏</label>
           <button type="button" id="btn-fullscreen" aria-pressed="false" aria-label="全螢幕">
             全螢幕
           </button>
@@ -576,6 +588,9 @@ function renderViewer(
   const viewerRoot = app.querySelector<HTMLDivElement>('.viewer')!;
   const btnFullscreen = app.querySelector<HTMLButtonElement>('#btn-fullscreen')!;
   const btnExitImmersive = app.querySelector<HTMLButtonElement>('#btn-exit-immersive')!;
+  const toolbarEl = app.querySelector<HTMLDivElement>('.viewer-toolbar')!;
+  const chkAutoHide = app.querySelector<HTMLInputElement>('#chk-autohide')!;
+  const btnRevealToolbar = app.querySelector<HTMLButtonElement>('#btn-reveal-toolbar')!;
 
   let doc: PDFDocumentProxy | null = null;
   let currentPage = 1;
@@ -592,6 +607,15 @@ function renderViewer(
   let immersive = false;
   /** 目前閱讀區放大是否由「手機橫向自動」觸發（直向時才自動收回，避免蓋過手動全螢幕） */
   let autoChromeApplied = false;
+  /** 使用者是否開啟「閒置自動隱藏工具列」 */
+  let autoHide = readAutoHidePref();
+  /** 目前工具列是否因閒置而收起（與 immersive 分開；沉浸時本來就不顯示） */
+  let toolbarAutoHidden = false;
+  let autoHideTimer = 0;
+  /** 指標停在工具列上就不收起，避免正在操作時被抽走 */
+  let pointerOverToolbar = false;
+  /** 剛剛完成滑動換頁；瀏覽器仍可能補一個 click，別誤判為「點中央切換工具列」 */
+  let lastFlickAt = 0;
   /**
    * 第一本書／同一版面下「100%」對應的 contain 基準。PDF 每頁尺寸不同，若每頁重算 rawFit，
    * 換頁後即使滑桿仍 100% 畫面也會忽大忽小；維持 max(sticky, rawFit) 可讓滿版感一致（較大頁可捲動）。
@@ -608,6 +632,24 @@ function renderViewer(
     }
   }
   let nextOnLeft = readNextOnLeftPref();
+
+  function readAutoHidePref(): boolean {
+    try {
+      const v = localStorage.getItem(LS_READER_AUTO_HIDE);
+      if (v === '0' || v === 'false') return false;
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  function persistAutoHide(v: boolean): void {
+    try {
+      localStorage.setItem(LS_READER_AUTO_HIDE, v ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
+  }
 
   function persistNextOnLeft(v: boolean): void {
     try {
@@ -806,6 +848,10 @@ function renderViewer(
     const hideToolbar = immersive && !fsOn;
     viewerRoot.classList.toggle('viewer--immersive', hideToolbar);
     btnExitImmersive.hidden = !hideToolbar;
+    /* 沉浸模式已經完全沒有工具列，這時不要再疊一個「叫回工具列」提示 */
+    const autoHidden = toolbarAutoHidden && !hideToolbar;
+    viewerRoot.classList.toggle('viewer--toolbar-auto-hidden', autoHidden);
+    btnRevealToolbar.hidden = !autoHidden;
     const chromeReduced = fsOn || immersive;
     btnFullscreen.setAttribute('aria-pressed', chromeReduced ? 'true' : 'false');
     btnFullscreen.textContent = chromeReduced ? '離開全螢幕' : '全螢幕';
@@ -817,6 +863,49 @@ function renderViewer(
           ? '全螢幕'
           : '隱藏工具列（閱讀區加大，近似全螢幕）',
     );
+  }
+
+  /** 正在操作工具列（指標停留其上或焦點在裡面）就先別收起 */
+  function toolbarBusy(): boolean {
+    if (pointerOverToolbar) return true;
+    const active = document.activeElement;
+    return active instanceof HTMLElement && toolbarEl.contains(active);
+  }
+
+  function clearAutoHideTimer(): void {
+    if (autoHideTimer !== 0) {
+      window.clearTimeout(autoHideTimer);
+      autoHideTimer = 0;
+    }
+  }
+
+  function setToolbarAutoHidden(hidden: boolean): void {
+    if (toolbarAutoHidden === hidden) return;
+    toolbarAutoHidden = hidden;
+    syncChrome();
+    /* 工具列進出會改變閱讀區高度；與全螢幕同樣要重算 contain 基準，否則 100% 會對不上 */
+    invalidateStickyContainScale();
+    void updateScaleAndRender();
+    scheduleStickyRefitAfterLayoutSettle();
+  }
+
+  function scheduleAutoHide(): void {
+    clearAutoHideTimer();
+    if (cancelled || !autoHide || immersive) return;
+    autoHideTimer = window.setTimeout(() => {
+      autoHideTimer = 0;
+      if (cancelled || !autoHide || immersive) return;
+      if (toolbarBusy()) {
+        scheduleAutoHide();
+        return;
+      }
+      setToolbarAutoHidden(true);
+    }, READER_AUTO_HIDE_IDLE_MS);
+  }
+
+  function revealToolbar(): void {
+    setToolbarAutoHidden(false);
+    scheduleAutoHide();
   }
 
   function onFullscreenChange(): void {
@@ -840,10 +929,12 @@ function renderViewer(
     } else {
       immersive = true;
     }
+    toolbarAutoHidden = false;
     invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
     scheduleStickyRefitAfterLayoutSettle();
+    scheduleAutoHide();
   }
 
   async function leaveChromeFullscreenAndImmersive(): Promise<void> {
@@ -851,10 +942,12 @@ function renderViewer(
       await exitFullscreenCompat();
     }
     immersive = false;
+    toolbarAutoHidden = false;
     invalidateStickyContainScale();
     syncChrome();
     void updateScaleAndRender();
     scheduleStickyRefitAfterLayoutSettle();
+    scheduleAutoHide();
   }
 
   function phoneLandscapeEligibleForAutoFs(): boolean {
@@ -971,6 +1064,7 @@ function renderViewer(
         /* 需偏快或滑距夠長，避免放大後慢速橫向捲動誤觸換頁 */
         const flick = horiz && dt >= 40 && dt < 720 && !pinchActive && (speed >= 0.28 || Math.abs(dx) >= 96);
         if (flick) {
+          lastFlickAt = Date.now();
           if (dx < 0) step(nextOnLeft ? -1 : 1);
           else step(nextOnLeft ? 1 : -1);
         }
@@ -1061,6 +1155,69 @@ function renderViewer(
     autoChromeApplied = false;
     void leaveChromeFullscreenAndImmersive();
   });
+
+  function onToolbarPointerEnter(): void {
+    pointerOverToolbar = true;
+    clearAutoHideTimer();
+  }
+
+  function onToolbarPointerLeave(): void {
+    pointerOverToolbar = false;
+    scheduleAutoHide();
+  }
+
+  /** 在工具列上的任何操作都重新計時，免得調到一半被收走 */
+  function onToolbarActivity(): void {
+    scheduleAutoHide();
+  }
+
+  /** 精準指標：滑鼠移到畫面底部即叫回工具列（近似播放器控制列） */
+  function onViewerPointerMove(e: PointerEvent): void {
+    if (!autoHide || e.pointerType === 'touch') return;
+    if (!toolbarAutoHidden) {
+      scheduleAutoHide();
+      return;
+    }
+    const rect = viewerRoot.getBoundingClientRect();
+    if (rect.bottom - e.clientY <= READER_REVEAL_EDGE_PX) revealToolbar();
+  }
+
+  /** 點畫面中央（非左右換頁區）切換工具列；觸控裝置沒有 hover，主要靠這個 */
+  function onStageClick(e: MouseEvent): void {
+    if (!autoHide) return;
+    const target = e.target;
+    if (target instanceof Element && target.closest('.zone, .viewer-exit-immersive, .viewer-reveal-toolbar')) {
+      return;
+    }
+    if (Date.now() - lastFlickAt < 400) return;
+    if (toolbarAutoHidden) {
+      revealToolbar();
+    } else {
+      clearAutoHideTimer();
+      setToolbarAutoHidden(true);
+    }
+  }
+
+  toolbarEl.addEventListener('pointerenter', onToolbarPointerEnter);
+  toolbarEl.addEventListener('pointerleave', onToolbarPointerLeave);
+  toolbarEl.addEventListener('pointerdown', onToolbarActivity);
+  toolbarEl.addEventListener('input', onToolbarActivity);
+  toolbarEl.addEventListener('focusin', onToolbarActivity);
+  viewerRoot.addEventListener('pointermove', onViewerPointerMove);
+  stageWrap.addEventListener('click', onStageClick);
+  btnRevealToolbar.addEventListener('click', () => revealToolbar());
+  chkAutoHide.checked = autoHide;
+  chkAutoHide.addEventListener('change', () => {
+    autoHide = chkAutoHide.checked;
+    persistAutoHide(autoHide);
+    if (autoHide) {
+      scheduleAutoHide();
+    } else {
+      clearAutoHideTimer();
+      setToolbarAutoHidden(false);
+    }
+  });
+
   syncChrome();
   btnGoto.addEventListener('click', () => applyGoto());
   gotoInput.addEventListener('keydown', (e) => {
@@ -1097,6 +1254,16 @@ function renderViewer(
       visualViewport.removeEventListener('scroll', onVisualViewportScroll);
     }
     ro.disconnect();
+    clearAutoHideTimer();
+    toolbarAutoHidden = false;
+    pointerOverToolbar = false;
+    toolbarEl.removeEventListener('pointerenter', onToolbarPointerEnter);
+    toolbarEl.removeEventListener('pointerleave', onToolbarPointerLeave);
+    toolbarEl.removeEventListener('pointerdown', onToolbarActivity);
+    toolbarEl.removeEventListener('input', onToolbarActivity);
+    toolbarEl.removeEventListener('focusin', onToolbarActivity);
+    viewerRoot.removeEventListener('pointermove', onViewerPointerMove);
+    stageWrap.removeEventListener('click', onStageClick);
     window.removeEventListener('keydown', onKey);
     zoneLeft.removeEventListener('click', onZoneLeftClick);
     zoneRight.removeEventListener('click', onZoneRightClick);
@@ -1161,6 +1328,7 @@ function renderViewer(
       loadingEl.classList.add('hidden');
       await updateScaleAndRender();
       scheduleAutoLandscapeChrome();
+      scheduleAutoHide();
       /* 首幀時 flex／visualViewport 常尚未穩定，sticky 會鎖錯 rawFit（易過大）；延後一輪再重算 contain */
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
